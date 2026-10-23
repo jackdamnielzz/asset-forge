@@ -59,7 +59,8 @@ try {
   }
 } catch (err) {
   console.error(`Error: ${err.message}`);
-  process.exit(1);
+  // exitCode instead of process.exit(): exiting hard while network handles close crashes Node on Windows
+  process.exitCode = 1;
 }
 
 function parseArgs(list) {

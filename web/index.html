@@ -7,7 +7,12 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 7-7 7-7-7z' fill='%23ff8a3d'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/web/style.css">
   <script type="importmap">
-    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+    { "imports": {
+      "three": "/vendor/three/build/three.module.js",
+      "three/addons/": "/vendor/three/examples/jsm/",
+      "three-mesh-bvh": "/vendor/three-mesh-bvh/build/index.module.js",
+      "three-bvh-csg": "/vendor/three-bvh-csg/build/index.module.js"
+    } }
   </script>
 </head>
 <body>
@@ -34,6 +39,10 @@
         <div id="shape-grid" class="shape-grid"></div>
       </section>
       <section>
+        <h3>Generators</h3>
+        <div id="generator-grid" class="gen-grid"></div>
+      </section>
+      <section>
         <h3>Objects</h3>
         <ul id="outliner"></ul>
       </section>
@@ -41,7 +50,7 @@
         <h3>Images <button id="import-btn" class="tiny">+ Import</button></h3>
         <input id="file-input" type="file" accept="image/*" multiple hidden>
         <div id="library" class="library"></div>
-        <p class="hint">Drop pictures anywhere. Click a picture to place it; use “Use as texture” in the panel on the right to paint it on a shape.</p>
+        <p class="hint">Drop pictures anywhere. Click a picture to place it flat, press “3D” to turn its outline into a solid shape, or choose it under “Picture” in a shape's material to paint it on.</p>
       </section>
     </aside>
 

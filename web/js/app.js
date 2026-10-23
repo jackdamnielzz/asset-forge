@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { SceneView } from './viewer.js';
-import { LIGHTING_PRESETS, MATERIAL_PRESETS, PATTERNS, STYLES, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '/shared/presets.js';
+import { LIGHTING_PRESETS, MATERIAL_PRESETS, PATTERNS, STYLES, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS, FONTS } from '/shared/presets.js';
 
 const DEG = Math.PI / 180;
 const role = new URLSearchParams(location.search).get('role') === 'renderer' ? 'renderer' : 'viewer';
@@ -191,6 +191,7 @@ function startWindow() {
   document.getElementById('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
 
   renderShapeButtons();
+  renderGenerators();
   setupImport();
 
   window.addEventListener('keydown', (e) => {
@@ -223,23 +224,50 @@ const ICONS = {
   torus: '<ellipse cx="12" cy="12" rx="9" ry="5"/><ellipse cx="12" cy="11.5" rx="3.5" ry="1.6"/>',
   plane: '<path d="M3 15l6-6h12l-6 6z"/>',
   capsule: '<rect x="7" y="3" width="10" height="18" rx="5"/>',
+  lathe: '<path d="M9 3h6M10 3c0 3-4 5-4 10 0 4 2 8 6 8s6-4 6-8c0-5-4-7-4-10"/>',
+  extrude: '<path d="M4 18l4-12h8l4 12z M8 6l2-3h8l2 3"/>',
+  text: '<path d="M5 6V4h14v2 M12 4v16 M9 20h6"/>',
+  rock: '<path d="M3 18l3-7 5-4 6 2 4 6-2 3z"/>',
   group: '<rect x="3" y="5" width="18" height="14" rx="2" stroke-dasharray="3 2"/>',
 };
+const SHAPE_LABELS = { lathe: 'spin', extrude: 'outline' };
 
 function renderShapeButtons() {
   const grid = document.getElementById('shape-grid');
   for (const [type, icon] of Object.entries(ICONS)) {
     const b = document.createElement('button');
-    b.innerHTML = `<svg viewBox="0 0 24 24">${icon}</svg>${type}`;
-    b.title = `Add ${type}`;
+    b.innerHTML = `<svg viewBox="0 0 24 24">${icon}</svg>${SHAPE_LABELS[type] ?? type}`;
+    b.title = `Add ${SHAPE_LABELS[type] ?? type}`;
     b.onclick = async () => {
       const args = { type };
+      if (type === 'text') {
+        const text = prompt('Text:', 'Hello');
+        if (!text) return;
+        args.params = { text };
+      }
+      if (type === 'rock') args.params = { seed: Math.floor(Math.random() * 9999) };
       const sel = state.selected && state.scene.objects[state.selected];
       if (sel?.type === 'group') args.parent = sel.id;
       const r = await run('add_object', args);
       if (r) window.forgeSelect(r.id);
     };
     grid.append(b);
+  }
+}
+
+// One button per generator command (from plugins), so new plugins appear automatically.
+async function renderGenerators() {
+  const box = document.getElementById('generator-grid');
+  const commands = await fetch('/api/commands').then((r) => r.json());
+  box.innerHTML = '';
+  for (const c of commands.filter((x) => x.category === 'generators')) {
+    box.append(el('button', {
+      title: c.description,
+      onclick: async () => {
+        const r = await run(c.name, { seed: Math.floor(Math.random() * 9999) });
+        if (r?.id) { window.forgeSelect(r.id); window.forgeFrame(); }
+      },
+    }, c.title.replace(/^Make /, '')));
   }
 }
 
@@ -257,7 +285,7 @@ function renderOutliner() {
       const li = document.createElement('li');
       li.className = (id === state.selected ? 'selected ' : '') + (o.visible === false ? 'hidden-obj' : '');
       li.style.paddingLeft = `${6 + depth * 14}px`;
-      li.innerHTML = `<button class="eye" title="Show/hide">${o.visible === false ? '◌' : '●'}</button><span class="label"></span><span class="type">${o.type}</span>`;
+      li.innerHTML = `<button class="eye" title="Show/hide">${o.visible === false ? '◌' : '●'}</button><span class="label"></span><span class="type">${o.cutterFor ? '✂ cutter' : o.type}</span>`;
       li.querySelector('.label').textContent = o.name;
       li.onclick = () => window.forgeSelect(id);
       li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); run('update_object', { id, visible: o.visible === false }); };
@@ -275,11 +303,18 @@ function renderLibrary() {
     const t = document.createElement('div');
     t.className = 'thumb';
     t.style.backgroundImage = `url(/library/images/${img.file})`;
-    t.title = `${img.name} (${img.width}×${img.height}). Click to place in scene.`;
+    t.title = `${img.name} (${img.width}×${img.height}). Click to place as a flat picture; "3D" turns its outline into a solid shape.`;
     t.onclick = async () => {
       const r = await run('add_object', { type: 'image', name: img.name, params: { assetId: img.id } });
       if (r) window.forgeSelect(r.id);
     };
+    const solid = el('button', { class: 'thumb-btn', title: 'Make a 3D cut-out of this picture' }, '3D');
+    solid.onclick = async (e) => {
+      e.stopPropagation();
+      const r = await run('add_object', { type: 'cutout', name: `${img.name}_3d`, params: { assetId: img.id } });
+      if (r) window.forgeSelect(r.id);
+    };
+    t.append(solid);
     box.append(t);
   }
 }
@@ -341,7 +376,7 @@ function slider(value, min, max, step, onInput, onCommit) {
 function renderProps() {
   const root = document.getElementById('props');
   // Don't rebuild while the user is typing in the panel.
-  if (root.contains(document.activeElement) && document.activeElement.matches('input[type=text], input[type=number]')) return;
+  if (root.contains(document.activeElement) && document.activeElement.matches('input[type=text], input[type=number], textarea')) return;
   root.innerHTML = '';
   const o = state.selected && state.scene.objects[state.selected];
   root.append(o ? objectPanel(o) : environmentPanel());
@@ -365,15 +400,9 @@ function objectPanel(o) {
 
   const paramKeys = Object.keys(o.params).filter((k) => k !== 'assetId');
   if (paramKeys.length) {
-    parts.push(el('h3', {}, 'Shape'), el('div', { class: 'prop-group' },
-      paramKeys.map((k) => k === 'bevel'
-        ? row('bevel', slider(o.params.bevel, 0, 0.3, 0.005, null, (v) => upd({ params: { bevel: v } })))
-        : row(k, el('input', {
-          type: 'number', step: /segments/i.test(k) ? 1 : 0.05, value: round(o.params[k], 3),
-          onchange: (e) => upd({ params: { [k]: Number(e.target.value) } }),
-        }))),
-    ));
+    parts.push(el('h3', {}, 'Shape'), el('div', { class: 'prop-group' }, paramKeys.map((k) => paramRow(o, k, upd))));
   }
+  if (o.type !== 'group') parts.push(modelingPanel(o));
 
   if (o.material) {
     const m = o.material;
@@ -410,6 +439,70 @@ function objectPanel(o) {
     el('button', { class: 'danger', onclick: () => run('delete_object', { id }) }, 'Delete'),
   ));
   return el('div', {}, parts);
+}
+
+function paramRow(o, k, upd) {
+  const v = o.params[k];
+  const set = (val) => upd({ params: { [k]: val } });
+  if (k === 'bevel') return row('bevel', slider(v, 0, 0.3, 0.005, null, set));
+  if (k === 'font') return row('font', el('select', { onchange: (e) => set(e.target.value) }, FONTS.map((f) => el('option', { value: f, selected: f === v }, f.replace('_', ' ')))));
+  if (typeof v === 'string') return row(k, el('input', { type: 'text', value: v, onchange: (e) => set(e.target.value) }));
+  if (Array.isArray(v)) {
+    // point lists: edit as JSON text, e.g. [[0,0],[0.3,0.5]]
+    return row(k, el('textarea', {
+      spellcheck: 'false',
+      onchange: (e) => { try { set(JSON.parse(e.target.value)); } catch { toast(`${k}: not valid JSON`, true); } },
+    }, JSON.stringify(v)));
+  }
+  return row(k, el('input', { type: 'number', step: /segments|detail|seed/i.test(k) ? 1 : 0.05, value: round(v, 3), onchange: (e) => set(Number(e.target.value)) }));
+}
+
+// Mirror, repeat and cut/combine.
+function modelingPanel(o) {
+  const { objects } = state.scene;
+  const id = o.id;
+  const items = [];
+  if (o.cutterFor && objects[o.cutterFor]) {
+    items.push(el('p', { class: 'hint' }, `This shape is used to cut "${objects[o.cutterFor].name}". It is hidden; show it to move it, then hide it again.`),
+      el('div', { class: 'btn-row' },
+        el('button', { onclick: () => run('update_object', { id, visible: o.visible === false }) }, o.visible === false ? 'Show cutter' : 'Hide cutter'),
+        el('button', { onclick: () => run('uncut_object', { target: o.cutterFor, cutter: id }) }, 'Stop cutting')));
+  }
+  if (o.booleans?.length) {
+    items.push(row('Cut by', el('div', {}, o.booleans.map((b) => el('span', { class: 'chip' },
+      `${b.op} ${objects[b.id]?.name ?? b.id}`,
+      el('button', { title: 'Remove', onclick: () => run('uncut_object', { target: id, cutter: b.id }) }, '✕'))))));
+  }
+  const others = state.scene.order.filter((oid) => oid !== id && objects[oid].type !== 'group');
+  const cutterSel = el('select', {}, el('option', { value: '' }, 'choose shape…'), others.map((oid) => el('option', { value: oid }, objects[oid].name)));
+  const opSel = el('select', {}, ['subtract', 'union', 'intersect'].map((op) => el('option', { value: op }, op)));
+  items.push(
+    row('Cut with', el('div', { class: 'color-row' }, cutterSel, opSel,
+      el('button', { class: 'tiny', onclick: () => cutterSel.value && run('cut_object', { target: id, cutter: cutterSel.value, op: opSel.value }) }, 'apply'))),
+    el('div', { class: 'btn-row' },
+      el('button', { title: 'Mirrored copy on the other side (left/right)', onclick: () => run('mirror_object', { id }).then((r) => r && window.forgeSelect(r.id)) }, '⇋ Mirror'),
+      el('button', {
+        title: 'Copies in a row',
+        onclick: () => {
+          const n = Number(prompt('How many extra copies in a row?', '4'));
+          if (n > 0) run('repeat_object', { id, count: n, mode: 'line', offset: [objectWidth(o) * 1.15, 0, 0] });
+        },
+      }, '⋯ Repeat'),
+      el('button', {
+        title: 'Copies in a circle around the centre (place the object away from the centre first)',
+        onclick: () => {
+          const n = Number(prompt('How many extra copies around the circle?', '7'));
+          if (n > 0) run('repeat_object', { id, count: n, mode: 'circle' });
+        },
+      }, '◌ Circle')),
+  );
+  return el('div', {}, el('h3', {}, 'Modelling'), el('div', { class: 'prop-group' }, items));
+}
+
+function objectWidth(o) {
+  const p = o.params;
+  const w = p.width ?? (p.radius ? p.radius * 2 : p.radiusBottom ? p.radiusBottom * 2 : 1);
+  return w * Math.abs(o.scale[0]);
 }
 
 // Generated pattern + age controls.

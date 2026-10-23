@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MATERIAL_PRESETS, SHAPE_DEFAULTS, PATTERNS } from '../../shared/presets.js';
+import { MATERIAL_PRESETS, SHAPE_DEFAULTS, PATTERNS, FONTS } from '../../shared/presets.js';
 import { CommandError } from '../registry.js';
 
 export const vec3 = z.array(z.number()).length(3);
@@ -81,17 +81,36 @@ export function buildParams(type, current, given = {}, engine) {
   if (unknown.length) {
     throw new CommandError(`Unknown params for ${type}: ${unknown.join(', ')}. Allowed: ${Object.keys(defaults).join(', ') || '(none)'}`);
   }
-  const params = { ...defaults, ...current, ...given };
+  const params = { ...structuredClone(defaults), ...current, ...given };
   for (const [k, v] of Object.entries(params)) {
-    if (k !== 'assetId' && typeof v !== 'number') throw new CommandError(`Param ${k} must be a number`);
+    if (k === 'assetId') continue;
+    const want = Array.isArray(defaults[k]) ? 'array' : typeof defaults[k];
+    const got = Array.isArray(v) ? 'array' : typeof v;
+    if (want !== got) throw new CommandError(`Param ${k} must be a ${want}`);
   }
-  if (type === 'image') {
+  if (type === 'lathe') checkPoints(params.points, 2, 'lathe points ([radius, y] pairs)');
+  if (type === 'extrude') {
+    checkPoints(params.points, 3, 'extrude points ([x, y] pairs)');
+    params.holes.forEach((h, i) => checkPoints(h, 3, `extrude hole ${i}`));
+  }
+  if (type === 'text') {
+    if (!params.text.trim()) throw new CommandError('Text cannot be empty.');
+    if (!FONTS.includes(params.font)) throw new CommandError(`Unknown font. Choose: ${FONTS.join(', ')}`);
+  }
+  if (type === 'rock') params.detail = Math.max(0, Math.min(5, Math.round(params.detail)));
+  if (type === 'image' || type === 'cutout') {
     const asset = engine.library.images[params.assetId];
-    if (!asset) throw new CommandError('Image objects need params.assetId (from import_image).');
+    if (!asset) throw new CommandError(`${type} objects need params.assetId (from import_image).`);
     if (given.height !== undefined && given.width === undefined) params.width = params.height * (asset.width / asset.height);
     else params.height = params.width * (asset.height / asset.width);
   }
   return params;
+}
+
+function checkPoints(points, min, what) {
+  const ok = Array.isArray(points) && points.length >= min
+    && points.every((p) => Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === 'number' && Number.isFinite(n)));
+  if (!ok) throw new CommandError(`${what}: need at least ${min} points like [[0, 0], [0.5, 1]]`);
 }
 
 export function toScale(s) {

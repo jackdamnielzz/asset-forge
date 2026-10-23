@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -8,6 +9,7 @@ import { registerBuiltins } from './commands/index.js';
 import { DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '../shared/presets.js';
 
 const HISTORY_LIMIT = 100;
+const actionContext = new AsyncLocalStorage();
 
 export function emptyScene(name = 'untitled') {
   return {
@@ -44,7 +46,7 @@ export class Engine extends EventEmitter {
     this.library = { images: {} };
     this.bridge = null;
     this.plugins = [];
-    this._batchDepth = 0;
+    this._queue = Promise.resolve();
     this._saveTimer = null;
   }
 
@@ -78,38 +80,45 @@ export class Engine extends EventEmitter {
 
   // ---- commands -----------------------------------------------------------
 
+  // Every user-level action becomes exactly one undo step: the outermost command or
+  // batch takes the snapshot, anything it runs inside is part of that same step.
   async execute(name, args = {}, meta = {}) {
     const def = this.registry.commands.get(name);
     const mutates = def?.mutates;
-    const before = mutates && this._batchDepth === 0 ? structuredClone(this.scene) : null;
-    const result = await this.registry.execute(name, args, { engine: this, scene: this.scene, meta });
-    if (before) {
-      this.undoStack.push(before);
-      if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
-      this.redoStack = [];
-    }
+    const result = mutates
+      ? await this.recorded(() => this.registry.execute(name, args, { engine: this, scene: this.scene, meta }))
+      : await this.registry.execute(name, args, { engine: this, scene: this.scene, meta });
     this.emit('log', { command: name, source: meta.source ?? 'unknown', ok: true, time: Date.now() });
     if (mutates) this.changed();
     return result ?? { ok: true };
   }
 
-  // Run several commands as one undo step.
+  // Run several commands as one undo step; if anything fails, everything is rolled back.
   async batch(fn) {
-    const before = structuredClone(this.scene);
-    this._batchDepth++;
-    try {
-      return await fn();
-    } catch (err) {
-      this.scene = before;
-      this.changed();
-      throw err;
-    } finally {
-      this._batchDepth--;
-      if (this._batchDepth === 0) {
+    return this.recorded(fn);
+  }
+
+  // Changes from different callers (the window and an AI at the same time) run one after
+  // another; AsyncLocalStorage tells a nested call apart from a concurrent one.
+  async recorded(fn) {
+    if (actionContext.getStore()) return fn();
+    const run = async () => {
+      const before = structuredClone(this.scene);
+      try {
+        const result = await actionContext.run(true, fn);
         this.undoStack.push(before);
+        if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
         this.redoStack = [];
+        return result;
+      } catch (err) {
+        this.scene = before;
+        this.changed();
+        throw err;
       }
-    }
+    };
+    const next = this._queue.then(run, run);
+    this._queue = next.catch(() => {});
+    return next;
   }
 
   undo() {
@@ -174,6 +183,7 @@ export class Engine extends EventEmitter {
     this.scene = scene;
     this.undoStack = [];
     this.redoStack = [];
+    await this.saveCurrent();
     this.changed();
   }
 

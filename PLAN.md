@@ -89,7 +89,7 @@
 - Generated materials: wood, planks, brushed/scratched metal, rust, stone, brick, tiles, fabric, concrete, hand-painted
 - "Age" slider: worn edges, grime, scratches, faded colour
 
-### Phase 3 — Shapes & generators
+### Phase 3 — Shapes & generators ✅ done (2026-10-23)
 - Repeat (row / circle) and mirror
 - 3D text
 - Spin tool (lathe): vases, bottles, chess pieces, columns

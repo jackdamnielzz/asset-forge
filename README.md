@@ -3,7 +3,7 @@
 Our own asset-creation tool, in the spirit of Blender, built so that **AI models can drive
 it completely**, and people can too. See [PLAN.md](PLAN.md) for the vision and roadmap.
 
-**Status:** Phase 1 (Foundation) and Phase 2 (Beauty) are done.
+**Status:** Phases 1 (Foundation), 2 (Beauty) and 3 (Shapes & generators) are done.
 
 ## Starting it
 
@@ -35,6 +35,19 @@ The window lives at <http://127.0.0.1:7777>. Everything is saved automatically.
 - "Age" (`wear` 0–1): grime, scratches, faded colour and darker worn edges on rounded boxes
 - 13 new material presets that use these (oak, old_wood, rusty_metal, brick_wall, cobblestone…)
 - Try it: `node src/cli/forge.js run examples/showcase.json`
+
+## What's in Phase 3
+
+- New shape types: **spin** (`lathe`, a profile spun around: bottles, vases, barrels), **outline**
+  (`extrude`, a flat outline with depth: blades, signs), **3D text**, **rock**, and **picture → 3D**
+  (`cutout`: the outline of an imported picture as a solid shape, picture on the front)
+- `cut_object`: cut one shape out of another (holes, windows, keyholes, grooves), melt them together, or keep the overlap
+- `mirror_object` (symmetry) and `repeat_object` (in a line, a circle or a grid)
+- Generator library (`plugins/props`): barrel, chest (open or closed, with treasure), rock (boulder,
+  cluster, pebbles, with moss), tree (round, pine, dead), crystal, potion (3 bottle shapes), sword,
+  coin (with symbol, stacks), lamp post, fence. Each has options and a seed for endless variations.
+- Generated textures are exported as JPEG, so GLB files stay small
+- Try it: `node src/cli/forge.js run examples/generators.json`
 
 ## How AIs control it
 

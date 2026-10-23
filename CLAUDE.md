@@ -17,6 +17,13 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
   picture effects in `web/js/effects.js`. Effects tone-map the whole frame, so the background colour is
   compensated there; keep that in mind when touching backgrounds.
 - Patterns need metre-based UVs, built in `metricUVs()` in viewer.js; geometry keys must include anything that changes UVs.
+- Advanced shapes live in `web/js/shapes.js`. Text fonts and cut-out outlines load asynchronously via
+  `SceneView.resourceFor()`; the scene rebuilds when they arrive.
+- Cut/combine (`booleans` on an object) uses three-bvh-csg 0.0.17 (newer versions need three ≥ 0.179).
+  Create a fresh `Evaluator` per operation; it keeps attribute settings between runs.
+- Undo: the outermost command or batch takes one snapshot (`Engine.recorded`, AsyncLocalStorage);
+  nested commands inside it are part of the same step. Concurrent callers are queued.
+- Generators are plugins in `plugins/props/` built with `defineGenerator()` from `kit.js`.
 
 ## Making assets with the MCP tools
 The `asset-forge` MCP server is configured in `.mcp.json`. Build with several parts in a group,

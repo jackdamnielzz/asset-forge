@@ -3,8 +3,13 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { LIGHTING_PRESETS, PATTERNS, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '/shared/presets.js';
+import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { Brush, Evaluator, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg';
 import { createComposer, tuneComposer, disposeComposer, compensateBackground } from './effects.js';
 import { generatePattern } from './patterns.js';
+import { latheGeometry, extrudeGeometry, textGeometry, rockGeometry, cutoutGeometry, traceImage } from './shapes.js';
+
+const CSG_OPS = { subtract: SUBTRACTION, union: ADDITION, intersect: INTERSECTION };
 
 const DEG = Math.PI / 180;
 
@@ -46,6 +51,8 @@ export class SceneView {
     this.textureCache = new Map();
     this.patternCache = new Map();
     this.gradientCache = new Map();
+    this.fonts = new Map();
+    this.outlines = new Map();
     this.pendingLoads = new Set();
     this.nodes = new Map(); // id -> { obj, geoKey, matKey, outline }
     this.data = null;
@@ -125,11 +132,15 @@ export class SceneView {
           objectScale: o.scale,
           edgeWear: o.type === 'box' && m.wear > 0 ? m.wear : 0,
         };
-        const geoKey = JSON.stringify([o.type, o.params, geoOpts.lowpoly, geoOpts.uvScale, geoOpts.uvScale ? o.scale : 0, geoOpts.edgeWear]);
+        const resource = this.resourceFor(o);
+        const geoKey = JSON.stringify([o.type, o.params, geoOpts.lowpoly, geoOpts.uvScale, geoOpts.uvScale ? o.scale : 0, geoOpts.edgeWear, !!resource]);
         if (geoKey !== node.geoKey) {
-          obj.geometry?.dispose();
-          obj.geometry = buildGeometry(o.type, o.params, geoOpts);
+          if (obj.geometry !== node.base) obj.geometry?.dispose();
+          node.base?.dispose();
+          node.base = buildGeometry(o.type, o.params, { ...geoOpts, resource });
+          obj.geometry = node.base;
           node.geoKey = geoKey;
+          node.csgKey = null;
         }
         const matKey = JSON.stringify(m) + o.type + styleKey + (m.texture ? this.library.images[m.texture]?.file : '');
         if (matKey !== node.matKey) {
@@ -162,7 +173,71 @@ export class SceneView {
       const parent = (o.parent && this.nodes.get(o.parent)?.obj) || this.content;
       if (node.obj.parent !== parent) parent.add(node.obj);
     }
+    this.applyBooleans(data);
     this.applyEnvironment(data.environment);
+  }
+
+  // Fonts (text) and traced outlines (cut-outs) load in the background; when ready the
+  // scene is rebuilt. Returns null while still loading.
+  resourceFor(o) {
+    if (o.type === 'text') {
+      const name = o.params.font;
+      if (this.fonts.has(name)) return this.fonts.get(name);
+      this.track(`font:${name}`, new FontLoader().loadAsync(`/vendor/three/examples/fonts/${name}.typeface.json`).then((f) => this.fonts.set(name, f)));
+      return null;
+    }
+    if (o.type === 'cutout') {
+      const asset = this.library.images[o.params.assetId];
+      if (!asset) return null;
+      const key = `${asset.file}|${o.params.threshold}`;
+      if (this.outlines.has(key)) return this.outlines.get(key);
+      this.track(`outline:${key}`, loadImage(`/library/images/${asset.file}`).then((img) => this.outlines.set(key, traceImage(img, o.params.threshold))));
+      return null;
+    }
+    return undefined;
+  }
+
+  track(key, promise) {
+    this.loading ??= new Set();
+    if (this.loading.has(key)) return;
+    this.loading.add(key);
+    const p = promise
+      .catch((err) => console.error(`load failed (${key}): ${err.message}`))
+      .finally(() => { this.loading.delete(key); if (this.data) this.update(this.data); });
+    this.pendingLoads.add(p);
+    p.finally(() => this.pendingLoads.delete(p));
+  }
+
+  // Cut and combine: objects listed in `booleans` are subtracted from / added to / intersected
+  // with this object. The cutter objects themselves stay in the scene, hidden.
+  applyBooleans(data) {
+    this.content.updateMatrixWorld(true);
+    for (const id of data.order) {
+      const o = data.objects[id];
+      const node = this.nodes.get(id);
+      if (!node || o.type === 'group') continue;
+      if (!o.booleans?.length) {
+        if (node.csgKey) { node.obj.geometry.dispose(); node.obj.geometry = node.base; node.csgKey = null; this.syncOutline(node, o); }
+        continue;
+      }
+      const inv = node.obj.matrixWorld.clone().invert();
+      const parts = o.booleans.map((b) => {
+        const cn = this.nodes.get(b.id);
+        if (!cn?.base || !CSG_OPS[b.op]) return null;
+        return { op: CSG_OPS[b.op], geo: cn.base, rel: inv.clone().multiply(cn.obj.matrixWorld), key: cn.geoKey };
+      }).filter(Boolean);
+      const key = JSON.stringify([node.geoKey, parts.map((p) => [p.op, p.key, p.rel.elements.map((e) => Math.round(e * 1e4))])]);
+      if (key === node.csgKey) continue;
+      if (node.csgKey) node.obj.geometry.dispose();
+      try {
+        node.obj.geometry = csg(node.base, parts);
+      } catch (err) {
+        console.error(`cut/combine failed for ${id}: ${err.message}`);
+        node.obj.geometry = node.base;
+      }
+      node.csgKey = key;
+      this.syncOutline(node, o);
+    }
   }
 
   // Dark "shell" around each object for the toon style.
@@ -254,6 +329,7 @@ export class SceneView {
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       t.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
       if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+      t.userData.mimeType = 'image/jpeg'; // much smaller GLB files; noise textures hide JPEG artefacts
       return t;
     };
     const result = { map: tex(out.color, true), orm: tex(out.orm, false), normal: tex(out.normal, false) };
@@ -432,17 +508,27 @@ export class SceneView {
     const target = targetId ? this.nodes.get(targetId)?.obj : this.content;
     const box = contentBox(target ?? this.content);
     if (box.isEmpty()) box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
-    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const center = box.getCenter(new THREE.Vector3());
     const dir = new THREE.Vector3().fromArray(VIEW_DIRS[view] ?? VIEW_DIRS.iso).normalize();
-    const fitH = sphere.radius / Math.sin((camera.fov * DEG) / 2);
-    const fitW = fitH / Math.min(1, camera.aspect);
-    const dist = Math.max(fitH, fitW) * 1.05;
-    camera.position.copy(sphere.center).addScaledVector(dir, dist);
+    // Find the distance at which every corner of the box fits inside the picture.
+    camera.position.copy(center).add(dir);
+    camera.lookAt(center);
+    camera.updateMatrixWorld();
+    const toCam = camera.matrixWorldInverse.clone().setPosition(0, 0, 0);
+    const tanV = Math.tan((camera.fov * DEG) / 2), tanH = tanV * camera.aspect;
+    let dist = 0;
+    for (let i = 0; i < 8; i++) {
+      const c = new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
+      c.sub(center).applyMatrix4(toCam);
+      dist = Math.max(dist, c.z + Math.abs(c.x) / tanH, c.z + Math.abs(c.y) / tanV);
+    }
+    dist = Math.max(dist * 1.08, 0.05);
+    camera.position.copy(center).addScaledVector(dir, dist);
     camera.near = dist / 100;
     camera.far = dist * 10;
-    camera.lookAt(sphere.center);
+    camera.lookAt(center);
     camera.updateProjectionMatrix();
-    return sphere.center;
+    return center;
   }
 
   // Render a picture. Supersamples for clean edges, returns base64 PNG.
@@ -517,7 +603,41 @@ export class SceneView {
 
 // A material needs generated textures when it has a pattern or shows wear.
 function hasSurface(o) {
-  return o.type !== 'image' && !!o.material && (!!o.material.pattern || o.material.wear > 0);
+  return o.type !== 'image' && o.type !== 'cutout' && !!o.material && (!!o.material.pattern || o.material.wear > 0);
+}
+
+function csg(base, parts) {
+  // A fresh evaluator each time: it keeps attribute settings from earlier runs.
+  const evaluator = new Evaluator();
+  evaluator.useGroups = false;
+  const withColor = !!base.attributes.color;
+  evaluator.attributes = withColor ? ['position', 'normal', 'uv', 'color'] : ['position', 'normal', 'uv'];
+  const prep = (g) => {
+    const c = g.clone();
+    if (!c.attributes.uv) c.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(c.attributes.position.count * 2), 2));
+    if (withColor && !c.attributes.color) c.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(c.attributes.position.count * 3).fill(1), 3));
+    if (!withColor) c.deleteAttribute('color');
+    for (const name of Object.keys(c.attributes)) if (!evaluator.attributes.includes(name)) c.deleteAttribute(name);
+    return c;
+  };
+  let a = new Brush(prep(base));
+  a.updateMatrixWorld();
+  for (const p of parts) {
+    const b = new Brush(prep(p.geo));
+    p.rel.decompose(b.position, b.quaternion, b.scale);
+    b.updateMatrixWorld();
+    a = evaluator.evaluate(a, b, p.op);
+  }
+  return a.geometry;
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`cannot load ${src}`));
+    img.src = src;
+  });
 }
 
 // Bounding box of the real objects only (ignores outline shells).
@@ -532,7 +652,7 @@ function contentBox(root) {
   return box;
 }
 
-export function buildGeometry(type, p, { lowpoly = false, uvScale = 0, objectScale = [1, 1, 1], edgeWear = 0 } = {}) {
+export function buildGeometry(type, p, { lowpoly = false, uvScale = 0, objectScale = [1, 1, 1], edgeWear = 0, resource = null } = {}) {
   const seg = (n, min) => (lowpoly ? Math.min(n, min) : n);
   let g;
   switch (type) {
@@ -544,7 +664,16 @@ export function buildGeometry(type, p, { lowpoly = false, uvScale = 0, objectSca
       break;
     }
     case 'sphere': g = new THREE.SphereGeometry(p.radius, seg(p.segments, 12), seg(Math.max(4, Math.round(p.segments / 2)), 8)); break;
-    case 'cylinder': g = new THREE.CylinderGeometry(p.radiusTop, p.radiusBottom, p.height, seg(p.segments, 10)); break;
+    case 'cylinder': {
+      const theta = Math.min(360, Math.max(1, p.thetaLength ?? 360));
+      g = new THREE.CylinderGeometry(p.radiusTop, p.radiusBottom, p.height, seg(p.segments, 10), 1, false, Math.PI / 2 - (theta * DEG) / 2, theta * DEG);
+      break;
+    }
+    case 'lathe': g = latheGeometry(p, lowpoly); break;
+    case 'extrude': g = extrudeGeometry(p); break;
+    case 'text': g = textGeometry(p, resource); break;
+    case 'rock': g = rockGeometry({ ...p, detail: lowpoly ? Math.min(p.detail, 1) : p.detail, sharpness: lowpoly ? 1 : p.sharpness }); break;
+    case 'cutout': g = resource ? cutoutGeometry(p, resource) : new THREE.PlaneGeometry(p.width, p.height); break;
     case 'cone': g = new THREE.ConeGeometry(p.radius, p.height, seg(p.segments, 10)); break;
     case 'torus': g = new THREE.TorusGeometry(p.radius, p.tube, seg(Math.max(8, Math.round(p.segments / 2)), 6), seg(p.segments * 2, 14)); break;
     case 'capsule': g = new THREE.CapsuleGeometry(p.radius, p.length, lowpoly ? 2 : 8, seg(p.segments, 8)); break;
@@ -552,6 +681,7 @@ export function buildGeometry(type, p, { lowpoly = false, uvScale = 0, objectSca
     default: g = new THREE.BoxGeometry(1, 1, 1);
   }
   if (uvScale) metricUVs(g, type, p, uvScale, objectScale);
+  else if (type === 'rock') metricUVs(g, type, p, 1, objectScale); // rocks have no UVs of their own
   if (edgeWear) edgeWearColors(g, edgeWear);
   return g;
 }
@@ -559,16 +689,21 @@ export function buildGeometry(type, p, { lowpoly = false, uvScale = 0, objectSca
 // Give textures a real-world size (metres per tile) so patterns are never stretched.
 function metricUVs(g, type, p, scale, s) {
   const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+  if (!pos?.count || !nor || !uv) return;
   const avg = (s[0] + s[1] + s[2]) / 3;
   const k = 1 / scale;
+  const latheR = type === 'lathe' ? Math.max(...p.points.map((pt) => pt[0])) : 0;
+  const latheLen = type === 'lathe' ? p.points.reduce((a, pt, i) => (i ? a + Math.hypot(pt[0] - p.points[i - 1][0], pt[1] - p.points[i - 1][1]) : 0), 0) : 0;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i) * s[0], y = pos.getY(i) * s[1], z = pos.getZ(i) * s[2];
     const nx = Math.abs(nor.getX(i)), ny = Math.abs(nor.getY(i)), nz = Math.abs(nor.getZ(i));
     let u, v;
     switch (type) {
-      case 'box':
+      case 'box': case 'rock':
         if (nx >= ny && nx >= nz) { u = z; v = y; } else if (ny >= nz) { u = x; v = z; } else { u = x; v = y; }
         break;
+      case 'lathe': u = uv.getX(i) * Math.PI * 2 * latheR * avg; v = uv.getY(i) * latheLen * avg; break;
+      case 'extrude': case 'text': u = uv.getX(i) * avg; v = uv.getY(i) * avg; break;
       case 'plane': u = x; v = y; break;
       case 'cylinder': case 'cone': {
         const r = type === 'cone' ? p.radius / 2 : (p.radiusTop + p.radiusBottom) / 2;

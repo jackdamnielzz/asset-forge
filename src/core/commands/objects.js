@@ -1,4 +1,4 @@
-import { OBJECT_TYPES, SHAPE_DEFAULTS, restingHeight } from '../../shared/presets.js';
+import { OBJECT_TYPES, SHAPE_DEFAULTS, SHAPE_NOTES, restingHeight } from '../../shared/presets.js';
 import { CommandError } from '../registry.js';
 import { vec3, materialInput, defaultMaterial, applyMaterial, buildParams, toScale } from './common.js';
 
@@ -13,7 +13,8 @@ export function register(registry, { z, engine }) {
     description:
       'Add a shape to the scene. Units are metres, Y is up, rotation is in degrees. ' +
       'If no position is given the object rests on the ground at the origin. ' +
-      `Params per type: ${Object.entries(SHAPE_DEFAULTS).map(([t, p]) => `${t}{${Object.keys(p).join(',')}}`).join(' ')}. ` +
+      `Params per type (with defaults): ${Object.entries(SHAPE_DEFAULTS).filter(([t]) => t !== 'group').map(([t, p]) => `${t} ${JSON.stringify(p)}`).join('; ')}. ` +
+      `Notes: ${Object.entries(SHAPE_NOTES).map(([t, n]) => `${t}: ${n}`).join('. ')}. ` +
       'Tip: boxes have a "bevel" param (rounded edges) which makes them look far more real; keep it above 0.',
     input: z.object({
       type: z.enum(OBJECT_TYPES),
@@ -42,7 +43,7 @@ export function register(registry, { z, engine }) {
         params,
         material: args.type === 'group' ? null : applyMaterial(defaultMaterial(), args.material ?? {}, engine),
       };
-      if (args.type === 'image' && !args.material?.texture) {
+      if ((args.type === 'image' || args.type === 'cutout') && !args.material?.texture) {
         obj.material = { ...obj.material, texture: params.assetId, doubleSided: true, roughness: 0.8 };
       }
       engine.scene.objects[id] = obj;
@@ -121,6 +122,9 @@ export function register(registry, { z, engine }) {
       collect(engine, id, all);
       for (const oid of all) delete engine.scene.objects[oid];
       engine.scene.order = engine.scene.order.filter((oid) => !all.has(oid));
+      for (const o of Object.values(engine.scene.objects)) {
+        if (o.booleans) o.booleans = o.booleans.filter((b) => !all.has(b.id));
+      }
       return { deleted: [...all] };
     },
   });

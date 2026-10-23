@@ -65,6 +65,11 @@ h3 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacin
 .shape-grid button { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 2px; font-size: 10.5px; }
 .shape-grid svg { width: 22px; height: 22px; stroke: var(--text); fill: none; stroke-width: 1.4; }
 
+.gen-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+.gen-grid button { font-size: 11.5px; padding: 5px 4px; }
+textarea { font: 11px ui-monospace, Consolas, monospace; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px; width: 100%; min-height: 64px; resize: vertical; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 2px 4px 2px 9px; margin: 2px; font-size: 11.5px; }
+.chip button { padding: 0 5px; border: none; background: none; }
 #outliner { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
 #outliner li { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
 #outliner li:hover { background: var(--panel-2); }
@@ -77,6 +82,7 @@ h3 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacin
 .library { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .library .thumb { aspect-ratio: 1; border-radius: 6px; border: 1px solid var(--line); background: #0f1013 center/cover no-repeat; cursor: pointer; position: relative; }
 .library .thumb:hover { border-color: var(--accent); }
+.thumb-btn { position: absolute; right: 3px; bottom: 3px; padding: 1px 5px; font-size: 10px; font-weight: 700; background: rgba(20,22,27,.85); }
 .hint { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 
 #viewport { grid-area: view; position: relative; overflow: hidden; }

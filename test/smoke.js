@@ -75,6 +75,40 @@ try {
   check(Buffer.from(plain.image, 'base64').length > 5_000, 'renders with effects switched off');
   await call('set_effects', { ao: true, bloom: true });
 
+  // Phase 3: new shapes, modelling commands and generators
+  await call('new_project', { name: 'phase3' });
+  for (const type of ['lathe', 'extrude', 'text', 'rock']) {
+    const r = await call('add_object', { type });
+    check(r.object.params && r.object.type === type, `adds a ${type}`);
+  }
+  const badPts = await fetch(`${BASE}/api/commands/add_object`, { method: 'POST', body: JSON.stringify({ type: 'lathe', params: { points: [[0]] } }) }).then((r) => r.json());
+  check(!badPts.ok && /points/.test(badPts.error), 'rejects broken point lists');
+  const wall = await call('add_object', { type: 'box', position: [3, 0.5, 0], params: { depth: 0.2 } });
+  const hole = await call('add_object', { type: 'cylinder', position: [3, 0.5, 0], rotation: [90, 0, 0], params: { radiusTop: 0.2, radiusBottom: 0.2 } });
+  await call('cut_object', { target: wall.id, cutter: hole.id });
+  check((await call('get_object', { id: hole.id })).visible === false, 'cut_object hides the cutter');
+  const mirrored = await call('mirror_object', { id: wall.id });
+  const m = await call('get_object', { id: mirrored.id });
+  check(m.position[0] === -3 && m.scale[0] === -1, 'mirror_object flips position and scale');
+  const rep = await call('repeat_object', { id: hole.id, count: 3, mode: 'circle', group: true });
+  check(rep.ids.length === 5, 'repeat_object makes copies and a group');
+  await call('undo');
+  check(!(await call('get_scene')).objects[rep.ids[0]], 'repeat is a single undo step');
+  await call('delete_object', { id: hole.id });
+  check((await call('get_object', { id: wall.id })).booleans.length === 0, 'deleting a cutter removes the cut');
+  const generators = commands.filter((c) => c.category === 'generators').map((c) => c.name);
+  check(generators.length >= 11, `${generators.length} generators available`);
+  await call('clear_scene');
+  for (const [i, g] of generators.entries()) {
+    const r = await call(g, { position: [(i % 4) * 1.6, 0, Math.floor(i / 4) * 1.6], seed: i + 1 });
+    check(!!r.id, `${g} builds`);
+  }
+  const genShot = await call('render_preview', { width: 512, height: 512, save: 'generators' });
+  check(Buffer.from(genShot.image, 'base64').length > 40_000, 'all generators render together');
+  const genGlb = await call('export_glb', { filename: 'generators' });
+  check(genGlb.bytes > 100_000, `generators export to GLB (${Math.round(genGlb.bytes / 1024)} KB)`);
+  await call('open_project', { name: 'untitled' });
+
   const img = await call('import_image', { data: shot.image, name: 'my-render', addToScene: true });
   check(img.assetId && img.width === 512 && img.objectId, 'import_image stores image and places it');
 

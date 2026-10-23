@@ -18,9 +18,14 @@ How to make beautiful assets:
    set_material pattern {scale (metres per tile), seed, variation, bump, angle 90 for upright wood} and wear (0-1 age).
 5. Pick lighting with set_environment (studio for judging, others for mood). set_style switches the whole look
    (realistic, toon, lowpoly, clay - clay is great for checking shapes). set_effects controls soft shadows and glow.
-6. ALWAYS check your work with render_preview (try iso and front views) and fix gaps, floating parts and proportions before declaring it done.
-7. Use run_batch to build many parts in one step ($N.id references earlier results).
-8. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
+6. Ready-made generators build whole props in one call: make_barrel, make_chest, make_rock, make_tree, make_crystal,
+   make_potion, make_sword, make_coin, make_lamp_post, make_fence, make_crate (options + seed for variations).
+   Advanced shapes: lathe (spin a [radius, y] profile: bottles, vases, columns), extrude (flat outline with depth:
+   blades, signs), text, rock, cutout (an imported picture's outline as a solid). Modelling: cut_object
+   (subtract/union/intersect: holes, windows, grooves), mirror_object (symmetry), repeat_object (line/circle/grid).
+7. ALWAYS check your work with render_preview (try iso and front views) and fix gaps, floating parts and proportions before declaring it done.
+8. Use run_batch to build many parts in one step ($N.id references earlier results).
+9. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
 
 const server = new Server({ name: 'asset-forge', version: '0.1.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
 

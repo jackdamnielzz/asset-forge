@@ -7,7 +7,7 @@ export const description = 'Generates wooden crates with a frame, diagonal brace
 export default function register({ registry, z, engine }) {
   registry.define({
     name: 'make_crate',
-    title: 'Make crate',
+    title: 'Crate',
     category: 'generators',
     description:
       'Build a wooden crate as one group (frame posts, beams, diagonal braces, panels, optional metal corners). ' +

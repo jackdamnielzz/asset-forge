@@ -17,6 +17,8 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "puppeteer-core": "^25.16.0",
     "three": "0.170.0",
+    "three-bvh-csg": "^0.0.17",
+    "three-mesh-bvh": "^0.8.3",
     "ws": "^8.22.0",
     "zod": "^4.6.7"
   }

@@ -108,27 +108,45 @@ export const LIGHTING_PRESETS = {
   },
 };
 
-export const OBJECT_TYPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'capsule', 'image', 'group'];
+export const OBJECT_TYPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'capsule', 'lathe', 'extrude', 'text', 'rock', 'image', 'cutout', 'group'];
 
 export const SHAPE_DEFAULTS = {
   box:      { width: 1, height: 1, depth: 1, bevel: 0.04, bevelSegments: 4 },
   sphere:   { radius: 0.5, segments: 48 },
-  cylinder: { radiusTop: 0.5, radiusBottom: 0.5, height: 1, segments: 48 },
+  cylinder: { radiusTop: 0.5, radiusBottom: 0.5, height: 1, segments: 48, thetaLength: 360 },
   cone:     { radius: 0.5, height: 1, segments: 48 },
   torus:    { radius: 0.4, tube: 0.15, segments: 48 },
   plane:    { width: 1, height: 1 },
   capsule:  { radius: 0.3, length: 0.6, segments: 24 },
+  lathe:    { points: [[0, 0], [0.3, 0], [0.38, 0.25], [0.3, 0.6], [0.15, 0.75], [0.15, 0.9], [0, 0.9]], segments: 48 },
+  extrude:  { points: [[-0.4, 0], [0.4, 0], [0.4, 0.5], [0, 0.9], [-0.4, 0.5]], holes: [], depth: 0.2, bevel: 0.02, bevelSegments: 3 },
+  text:     { text: 'Hello', size: 0.3, depth: 0.08, bevel: 0.008, font: 'helvetiker_bold' },
+  rock:     { radius: 0.5, detail: 3, roughness: 0.35, flatten: 0.35, sharpness: 0.5, seed: 1 },
   image:    { assetId: null, width: 1, height: 1 },
+  cutout:   { assetId: null, width: 1, height: 1, depth: 0.05, bevel: 0.006, threshold: 0.5 },
   group:    {},
 };
 
-// Half the height of a shape, used to rest new objects on the ground.
+// Extra explanation for shape params, shown to AIs in the add_object description.
+export const SHAPE_NOTES = {
+  cylinder: 'thetaLength (degrees) < 360 makes a partial cylinder centred on its local +X side; e.g. thetaLength 180 with rotation [0, 0, 90] is a rounded chest lid pointing up',
+  lathe: 'points = profile [[radius, y], ...] from bottom to top, spun around the Y axis. Start/end at radius 0 to close it (bottles, vases, barrels, chess pieces)',
+  extrude: 'points = flat outline [[x, y], ...] pushed out by depth along Z; holes = list of outlines (blades, signs, gears, logos)',
+  text: 'fonts: helvetiker_regular, helvetiker_bold, optimer_regular, optimer_bold, gentilis_regular, gentilis_bold',
+  rock: 'lumpy natural stone. roughness = bumpiness, flatten = flat bottom, sharpness 0 = smooth, 1 = faceted. Different seed = different rock',
+  cutout: 'turns an image into a solid shape that follows its outline (transparent PNGs work best). threshold 0-1 decides what counts as background',
+};
+
+export const FONTS = ['helvetiker_regular', 'helvetiker_bold', 'optimer_regular', 'optimer_bold', 'gentilis_regular', 'gentilis_bold'];
+
+// Height at which a new object's origin is placed so it rests on the ground.
 export function restingHeight(type, p) {
   switch (type) {
-    case 'box': case 'cylinder': case 'cone': case 'plane': case 'image': return (p.height ?? 1) / 2;
+    case 'box': case 'cylinder': case 'cone': case 'plane': case 'image': case 'cutout': return (p.height ?? 1) / 2;
     case 'sphere': return p.radius ?? 0.5;
     case 'torus': return (p.radius ?? 0.4) + (p.tube ?? 0.15);
     case 'capsule': return (p.length ?? 0.6) / 2 + (p.radius ?? 0.3);
-    default: return 0;
+    case 'lathe': case 'extrude': return -Math.min(...(p.points ?? [[0, 0]]).map((pt) => pt[1]));
+    default: return 0; // text and rock are built standing on y = 0
   }
 }

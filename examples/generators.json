@@ -1,0 +1,21 @@
+{
+  "commands": [
+    { "command": "clear_scene" },
+    { "command": "set_environment", "args": { "lighting": "studio", "ground": true } },
+    { "command": "set_style", "args": { "style": "realistic" } },
+    { "command": "make_barrel", "args": { "position": [-3, 0, 0], "seed": 2 } },
+    { "command": "make_chest", "args": { "position": [-1.6, 0, 0], "open": true, "seed": 3 } },
+    { "command": "make_rock", "args": { "position": [0, 0, 0], "style": "cluster", "moss": true, "seed": 5 } },
+    { "command": "make_tree", "args": { "position": [1.6, 0, -0.4], "style": "round", "seed": 4 } },
+    { "command": "make_tree", "args": { "position": [3.0, 0, -0.4], "style": "pine", "seed": 8 } },
+    { "command": "make_crystal", "args": { "position": [-3, 0, 1.8], "seed": 6 } },
+    { "command": "make_potion", "args": { "position": [-1.9, 0, 1.8], "shape": "round" } },
+    { "command": "make_potion", "args": { "position": [-1.5, 0, 1.8], "shape": "tall", "liquidColor": "#5dff8a" } },
+    { "command": "make_potion", "args": { "position": [-1.1, 0, 1.8], "shape": "flask", "liquidColor": "#7a7dff" } },
+    { "command": "make_sword", "args": { "position": [0, 0, 1.8] } },
+    { "command": "make_coin", "args": { "position": [0.6, 0, 1.8], "count": 6 } },
+    { "command": "make_coin", "args": { "position": [0.85, 0, 1.9] } },
+    { "command": "make_lamp_post", "args": { "position": [4.3, 0, 0.6] } },
+    { "command": "make_fence", "args": { "position": [2.4, 0, 1.8], "length": 2.5 } }
+  ]
+}
