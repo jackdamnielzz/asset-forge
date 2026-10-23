@@ -54,4 +54,7 @@ before saying something is done. Exports go to `workspace/exports/`.
 
 ## Checks
 - `npm test` runs an end-to-end smoke test (starts a private engine on port 7790).
+- `npm run test:godot` checks the exports inside real Godot 4 (finds Godot automatically, or set GODOT).
+- Version history lives in `src/core/history.js` (workspace/history/<project>/); test engines set FORGE_NO_BACKUP=1
+  so they do not make daily backups next to their temp workspace.
 - Engine for manual testing: `node src/server/index.js --no-open` → http://127.0.0.1:7777

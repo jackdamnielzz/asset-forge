@@ -8,7 +8,7 @@ import os from 'node:os';
 // - Other computers only when sharing is switched on, and only with the password. They cannot
 //   touch files on this computer by path, nor change AI service settings.
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-const FILE_ARGS = ['path', 'project'];
+const FILE_ARGS = ['path', 'project', 'to'];
 const LOCAL_ONLY_COMMANDS = new Set(['connect_ai_service', 'open_window']);
 
 export function createAccess({ port, host, password, trustLocal = true }) {

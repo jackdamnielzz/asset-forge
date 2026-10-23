@@ -14,7 +14,7 @@ import { openPixelEditor } from './pixeleditor.js';
 const DEG = Math.PI / 180;
 const role = new URLSearchParams(location.search).get('role') === 'renderer' ? 'renderer' : 'viewer';
 
-const state = { scene: null, library: { images: {} }, selected: null, ws: null, lastCamera: null, anim: { playing: false, name: null, start: 0 } };
+const state = { scene: null, library: { images: {} }, selected: null, ws: null, lastCamera: null, anim: { playing: false, name: null, start: 0 }, multi: new Set() };
 let view;
 
 // ---- talking to the engine ----------------------------------------------------
@@ -149,7 +149,7 @@ function startWindow() {
       else run('edit_voxels', { id: sel.id, add: [[...front, c]] });
       return;
     }
-    select(hit?.object.userData.forgeId ?? null);
+    select(hit?.object.userData.forgeId ?? null, e.ctrlKey || (e.shiftKey && !state.voxelMode));
   });
 
   function onScene(scene) {
@@ -164,6 +164,7 @@ function startWindow() {
       state.lastCamera = camKey;
     }
     if (state.selected && !scene.objects[state.selected]) state.selected = null;
+    for (const id of state.multi) if (!scene.objects[id]) state.multi.delete(id);
     syncSelection();
     document.getElementById('project-name').textContent = scene.name;
     document.getElementById('lighting-select').value = scene.environment.lighting;
@@ -173,7 +174,13 @@ function startWindow() {
     renderProps();
   }
 
-  function select(id) {
+  // Ctrl/Shift+click adds to (or removes from) the selection; a plain click selects one thing.
+  function select(id, additive = false) {
+    if (additive && id) {
+      if (state.selected) state.multi.add(state.selected);
+      if (state.multi.has(id)) { state.multi.delete(id); id = [...state.multi].pop() ?? null; } else state.multi.add(id);
+      if (state.multi.size < 2) state.multi.clear();
+    } else state.multi.clear();
     state.selected = id;
     syncSelection();
     renderOutliner();
@@ -181,10 +188,20 @@ function startWindow() {
   }
   window.forgeSelect = select;
 
+  const multiBoxes = [];
   function syncSelection() {
     const obj = state.selected && view.objectById(state.selected);
-    if (obj) { gizmo.attach(obj); selBox.setFromObject(obj); selBox.visible = true; }
+    // with several things selected the move arrows are hidden: group them to move them together
+    if (obj && state.multi.size < 2) { gizmo.attach(obj); selBox.setFromObject(obj); selBox.visible = true; }
     else { gizmo.detach(); selBox.visible = false; }
+    for (const b of multiBoxes.splice(0)) { b.removeFromParent(); b.dispose(); }
+    for (const id of state.multi) {
+      const o = view.objectById(id);
+      if (!o) continue;
+      const b = new THREE.BoxHelper(o, 0x3dc6ff);
+      view.helpers.add(b);
+      multiBoxes.push(b);
+    }
   }
 
   function frameSelected() {
@@ -201,6 +218,7 @@ function startWindow() {
     if (anim) view.pose(a.name, (((performance.now() - a.start) / 1000) % anim.duration) / anim.duration);
     orbit.update();
     if (selBox.visible) selBox.update();
+    for (const b of multiBoxes) b.update();
     view.draw();
   })();
 
@@ -260,6 +278,8 @@ function startWindow() {
     else if (k === 'r') setMode('scale');
     else if (k === 'f') frameSelected();
     else if (k === 'escape') select(null);
+    else if ((e.ctrlKey || e.metaKey) && k === 'g' && state.multi.size > 1) { e.preventDefault(); groupSelected(); }
+    else if ((k === 'delete' || k === 'backspace') && state.multi.size > 1) deleteSelected();
     else if ((k === 'delete' || k === 'backspace') && state.selected) run('delete_object', { id: state.selected });
   });
 
@@ -336,11 +356,11 @@ function renderOutliner() {
     for (const id of order.filter((oid) => (objects[oid].parent ?? null) === parent)) {
       const o = objects[id];
       const li = document.createElement('li');
-      li.className = (id === state.selected ? 'selected ' : '') + (o.visible === false ? 'hidden-obj' : '');
+      li.className = (id === state.selected || state.multi.has(id) ? 'selected ' : '') + (o.visible === false ? 'hidden-obj' : '');
       li.style.paddingLeft = `${6 + depth * 14}px`;
       li.innerHTML = `<button class="eye" title="Show/hide">${o.visible === false ? '◌' : '●'}</button><span class="label"></span><span class="type">${o.cutterFor ? '✂ cutter' : o.type}</span>`;
       li.querySelector('.label').textContent = o.name;
-      li.onclick = () => window.forgeSelect(id);
+      li.onclick = (e) => window.forgeSelect(id, e.ctrlKey || e.shiftKey);
       li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); run('update_object', { id, visible: o.visible === false }); };
       ul.append(li);
       walk(id, depth + 1);
@@ -446,7 +466,7 @@ function renderProps() {
   if (root.contains(document.activeElement) && document.activeElement.matches('input[type=text], input[type=number], textarea')) return;
   root.innerHTML = '';
   const o = state.selected && state.scene.objects[state.selected];
-  root.append(o ? objectPanel(o) : environmentPanel());
+  root.append(state.multi.size > 1 ? multiPanel() : o ? objectPanel(o) : environmentPanel());
 }
 
 function objectPanel(o) {
@@ -505,6 +525,7 @@ function objectPanel(o) {
   }
 
   parts.push(el('div', { class: 'btn-row' },
+    o.type === 'group' ? el('button', { title: 'Dissolve the group; its objects stay where they are', onclick: () => run('ungroup', { id }).then((r) => r && window.forgeSelect(null)) }, 'Ungroup') : null,
     el('button', { onclick: () => run('duplicate_object', { id }).then((r) => r && window.forgeSelect(r.id)) }, 'Duplicate'),
     el('button', { onclick: () => window.forgeFrame() }, 'Frame'),
     el('button', { class: 'danger', onclick: () => run('delete_object', { id }) }, 'Delete'),
@@ -585,6 +606,46 @@ function voxelPanel(o) {
     el('label', { class: 'inline' }, mode, ' Build mode'),
     el('p', { class: 'hint' }, 'In build mode: click a block face to add a block, Shift+click to remove one, Alt+click to paint it.'),
     row('Colour', pick), swatches));
+}
+
+// ---- several objects selected ---------------------------------------------------------
+
+function multiPanel() {
+  const ids = [...state.multi];
+  const names = ids.map((id) => state.scene.objects[id]?.name ?? id);
+  const shapes = ids.filter((id) => state.scene.objects[id]?.type !== 'group');
+  const preset = el('select', { onchange: (e) => e.target.value && run('set_material', { ids, preset: e.target.value }) },
+    el('option', { value: '' }, 'Apply to all…'), Object.keys(MATERIAL_PRESETS).map((p) => el('option', { value: p }, p)));
+  const colour = el('input', { type: 'color', value: '#c8955c', onchange: (e) => run('set_material', { ids, color: e.target.value }) });
+  return el('div', {},
+    el('h3', {}, `${ids.length} objects selected`),
+    el('p', { class: 'hint' }, names.join(', ')),
+    el('div', { class: 'prop-group' },
+      el('div', { class: 'btn-row' },
+        el('button', { class: 'primary', title: 'Ctrl+G', onclick: groupSelected }, '▣ Group them'),
+        el('button', { onclick: duplicateSelected }, 'Duplicate all'),
+        el('button', { class: 'danger', onclick: deleteSelected }, 'Delete all')),
+      shapes.length ? row('Material', preset) : null,
+      shapes.length ? row('Colour', colour) : null,
+      el('p', { class: 'hint' }, 'To move them together, group them first (the group gets its own move arrows). Ctrl+click toggles an object in or out of the selection.')));
+}
+
+async function groupSelected() {
+  const r = await run('group_objects', { ids: [...state.multi] });
+  if (r) window.forgeSelect(r.id);
+}
+
+async function duplicateSelected() {
+  const r = await run('run_batch', { commands: [...state.multi].map((id) => ({ command: 'duplicate_object', args: { id } })) });
+  if (r) toast(`Duplicated ${r.results.length} objects`);
+}
+
+async function deleteSelected() {
+  // children go with their group, so skip anything inside another selected object
+  const ids = [...state.multi];
+  const inside = (id) => { for (let p = state.scene.objects[id]?.parent; p; p = state.scene.objects[p]?.parent) if (ids.includes(p)) return true; return false; };
+  const top = ids.filter((id) => !inside(id));
+  if (await run('run_batch', { commands: top.map((id) => ({ command: 'delete_object', args: { id } })) })) window.forgeSelect(null);
 }
 
 // ---- recipes & variations ------------------------------------------------------------
@@ -1400,7 +1461,22 @@ async function openProjectModal() {
     el('button', { onclick: async () => { const n = prompt('Save a copy as:', `${state.scene.name}-copy`); if (n && await run('save_project_as', { name: n })) closeModal(); } }, 'Save as…'),
     el('h3', {}, 'Open'),
     list.projects.map((p) => el('button', { onclick: async () => { if (await run('open_project', { name: p })) closeModal(); } }, p === list.current ? `${p}  (open)` : p)),
+    el('h3', {}, 'Earlier versions of this project'),
+    el('div', { class: 'btn-row' },
+      el('button', { onclick: async () => { const note = prompt('Name for this checkpoint (e.g. "before AI experiment"):', ''); if (note !== null && await run('save_checkpoint', { note })) { toast('Checkpoint saved'); openProjectModal(); } } }, '📌 Save checkpoint'),
+      el('button', { onclick: async () => { const r = await run('backup_now'); if (r) toast(`Backup saved in ${r.folder}`); } }, '💾 Back up everything now')),
+    await versionList(),
   ));
+}
+
+async function versionList() {
+  const versions = (await run('list_versions')) ?? [];
+  if (!versions.length) return el('p', { class: 'hint' }, 'No earlier versions yet. They appear automatically every few minutes while you work, and before big changes.');
+  const label = { auto: '🕑 automatic', safety: '🛟 before a big change', checkpoint: '📌 checkpoint' };
+  return el('div', { class: 'menu-list', style: 'max-height:260px;overflow:auto' }, versions.slice(0, 40).map((v) => el('button', {
+    title: 'Go back to this version (the current state is kept as a version too)',
+    onclick: async () => { if (confirm('Go back to this version? Your current state is saved as a version first.') && await run('restore_version', { id: v.id })) { closeModal(); toast('Version restored'); } },
+  }, `${new Date(v.time ?? Date.now()).toLocaleString()} · ${label[v.kind] ?? v.kind}${v.note ? ` · ${v.note}` : ''}${v.objects !== null ? ` · ${v.objects} objects` : ''}`)));
 }
 
 // ---- log & helpers -------------------------------------------------------------

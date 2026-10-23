@@ -133,6 +133,17 @@ AIs that have their own image tools (like PixelLab in Claude Code) can simply `i
   whether Node.js may use the network. For friends outside your home network, use a tunnel service (e.g. Tailscale).
 - **Safety**: requests from other websites (CSRF) and unknown host names (DNS rebinding) are now refused, also without sharing.
 
+## After the plan
+
+- **Tested in real Godot 4.6**: `npm run test:godot` exports a chest (collision + animation), level-kit pieces,
+  character sprites, a tileset and an effect into a temporary Godot project and lets Godot import and check them.
+- **Version history**: every project keeps earlier versions (automatically every few minutes, before big changes, and
+  checkpoints you make yourself). Projects → "Earlier versions" to go back; `list_versions`, `save_checkpoint`, `restore_version`.
+- **Backups**: once a day a dated copy of all projects, the library and the history goes to `workspace-backups/`
+  (last 7 kept); `backup_now { to }` copies everything to another folder, e.g. a USB stick.
+- **Multi-select**: Ctrl+click (in the 3D view or the object list) selects several objects; group them (Ctrl+G),
+  give them a material or colour, duplicate or delete them at once. `group_objects` / `ungroup` keep everything in place.
+
 ## How AIs control it
 
 Every action is a **command**. The window's buttons, the MCP tools, the HTTP API and the CLI

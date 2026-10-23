@@ -42,7 +42,9 @@ How to make beautiful assets:
    versions (pick with keep_variation); check_quality before delivering; apply_house_style keeps a game consistent.
 10. Finished assets: save_asset (thumbnail + tags) puts them in the library; search_library / place_asset reuse them.
    render_preview { sizeReference: true } shows a 1.8 m person to check the scale.
-11. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
+11. Before risky experiments call save_checkpoint; restore_version brings an earlier state back. group_objects / ungroup
+   organise parts without moving them.
+12. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
 
 const server = new Server({ name: 'asset-forge', version: '0.1.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
 

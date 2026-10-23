@@ -14,7 +14,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'forge-test-'));
 
 const proc = spawn(process.execPath, ['src/server/index.js', '--no-open'], {
-  cwd: ROOT, env: { ...process.env, FORGE_PORT: String(PORT), FORGE_WORKSPACE: workspace, FORGE_POLL_MS: '50', OPENAI_API_KEY: '', GEMINI_API_KEY: '', NANOGPT_API_KEY: '', FAL_KEY: '' }, stdio: ['ignore', 'inherit', 'inherit'],
+  cwd: ROOT, env: { ...process.env, FORGE_PORT: String(PORT), FORGE_WORKSPACE: workspace, FORGE_NO_BACKUP: '1', FORGE_POLL_MS: '50', OPENAI_API_KEY: '', GEMINI_API_KEY: '', NANOGPT_API_KEY: '', FAL_KEY: '' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
 
 async function call(name, args = {}) {
@@ -312,6 +312,29 @@ try {
   const rebind = await new Promise((resolve) => http.get({ host: '127.0.0.1', port: PORT, path: '/api/scene', headers: { Host: 'attacker.example:7790' } }, (r) => { r.resume(); resolve(r.statusCode); }));
   check(rebind === 421, 'refuses unknown host names');
 
+  // Versions, backups, grouping
+  await call('new_project', { name: 'history' });
+  const a1 = await call('add_object', { type: 'box', position: [1, 0.5, 0] });
+  const a2 = await call('add_object', { type: 'sphere', position: [3, 0.5, 2] });
+  const cp = await call('save_checkpoint', { note: 'two shapes' });
+  await call('clear_scene');
+  const versions = await call('list_versions');
+  check(versions.some((v) => v.id === cp.id && v.kind === 'checkpoint') && versions.some((v) => v.kind === 'safety'), 'checkpoints and a safety version before clearing');
+  await call('restore_version', { id: cp.id });
+  check((await call('get_scene')).order.length === 2, 'restores an earlier version');
+  const grp = await call('group_objects', { ids: [a1.id, a2.id], name: 'pair' });
+  const gObj = await call('get_object', { id: grp.id });
+  check(gObj.position[0] === 2 && (await call('get_object', { id: a1.id })).position[0] === -1, 'group sits in the middle, objects keep their place');
+  await call('update_object', { id: grp.id, rotation: [0, 90, 0], position: [10, 0, 0] });
+  await call('ungroup', { id: grp.id });
+  const after = await call('get_object', { id: a1.id });
+  // local (-1, 0, -1) turned 90° around Y lands at (-1, 0, 1), plus the group's (10, 0, 0)
+  check(after.parent === null && Math.abs(after.position[0] - 9) < 1e-4 && Math.abs(after.position[2] - 1) < 1e-4 && Math.abs(after.rotation[1] - 90) < 1e-4,
+    `ungroup keeps world position and rotation (${after.position.join(', ')})`);
+  const backupDir = path.join(workspace, 'usb-stick');
+  const bk = await call('backup_now', { to: backupDir });
+  check((await fs.readdir(path.join(bk.folder, 'projects'))).some((f) => f.startsWith('history')), 'backs up projects to a chosen folder');
+
   await call('open_project', { name: 'untitled' });
 
   const img = await call('import_image', { data: shot.image, name: 'my-render', addToScene: true });
@@ -329,7 +352,7 @@ try {
   const SHARE = 7792;
   const shareWs = await fs.mkdtemp(path.join(os.tmpdir(), 'forge-share-'));
   const shared = spawn(process.execPath, ['src/server/index.js', '--no-open'], {
-    cwd: ROOT, env: { ...process.env, FORGE_PORT: String(SHARE), FORGE_WORKSPACE: shareWs, FORGE_PASSWORD: 'correct-horse-9', FORGE_TRUST_LOCAL: '0' }, stdio: 'ignore',
+    cwd: ROOT, env: { ...process.env, FORGE_PORT: String(SHARE), FORGE_WORKSPACE: shareWs, FORGE_NO_BACKUP: '1', FORGE_PASSWORD: 'correct-horse-9', FORGE_TRUST_LOCAL: '0' }, stdio: 'ignore',
   });
   try {
     const sb = `http://127.0.0.1:${SHARE}`;

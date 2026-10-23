@@ -2,6 +2,43 @@ import { CommandError } from '../registry.js';
 import { vec3 } from './common.js';
 
 const MIRROR_ROT = { x: [1, -1, -1], y: [-1, 1, -1], z: [-1, -1, 1] };
+const DEG = Math.PI / 180;
+
+// Small 4x4 matrix helpers (row-major) for position / rotation (XYZ degrees) / scale,
+// matching three.js conventions, so ungrouping keeps objects exactly in place.
+function trs(p, r, s) {
+  const [a, b, c] = r.map((v) => v * DEG);
+  const [ca, sa, cb, sb, cc, sc] = [Math.cos(a), Math.sin(a), Math.cos(b), Math.sin(b), Math.cos(c), Math.sin(c)];
+  // R = Rx * Ry * Rz (three.js 'XYZ' order)
+  const R = [
+    [cb * cc, -cb * sc, sb],
+    [ca * sc + sa * sb * cc, ca * cc - sa * sb * sc, -sa * cb],
+    [sa * sc - ca * sb * cc, sa * cc + ca * sb * sc, ca * cb],
+  ];
+  return [
+    [R[0][0] * s[0], R[0][1] * s[1], R[0][2] * s[2], p[0]],
+    [R[1][0] * s[0], R[1][1] * s[1], R[1][2] * s[2], p[1]],
+    [R[2][0] * s[0], R[2][1] * s[1], R[2][2] * s[2], p[2]],
+    [0, 0, 0, 1],
+  ];
+}
+
+function mul(A, B) {
+  return A.map((row) => [0, 1, 2, 3].map((j) => row.reduce((acc, v, k) => acc + v * B[k][j], 0)));
+}
+
+function decompose(M) {
+  const col = (j) => [M[0][j], M[1][j], M[2][j]];
+  const len = (v) => Math.hypot(...v);
+  const det = M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+  const s = [len(col(0)) * (det < 0 ? -1 : 1), len(col(1)), len(col(2))];
+  const r = (i, j) => M[i][j] / s[j];
+  const b = Math.asin(Math.max(-1, Math.min(1, r(0, 2))));
+  let a, c;
+  if (Math.abs(r(0, 2)) < 0.9999999) { a = Math.atan2(-r(1, 2), r(2, 2)); c = Math.atan2(-r(0, 1), r(0, 0)); } else { a = Math.atan2(r(2, 1), r(1, 1)); c = 0; }
+  const round = (v) => Math.round(v * 1e6) / 1e6;
+  return { position: [M[0][3], M[1][3], M[2][3]].map(round), rotation: [a, b, c].map((v) => round(v / DEG)), scale: s.map(round) };
+}
 const AXIS = { x: 0, y: 1, z: 2 };
 
 export function register(registry, { z, engine }) {
@@ -46,6 +83,58 @@ export function register(registry, { z, engine }) {
       const c = engine.scene.objects[cutter];
       if (c) { c.visible = true; delete c.cutterFor; }
       return { target, booleans: t.booleans };
+    },
+  });
+
+  registry.define({
+    name: 'group_objects',
+    title: 'Group objects',
+    category: 'modeling',
+    mutates: true,
+    description:
+      'Put several objects into a new group so they move, animate, export and get saved together. The group sits at their middle; ' +
+      'the objects keep their place. They must share the same parent (all top-level, or all inside the same group).',
+    input: z.object({ ids: z.array(z.string()).min(1), name: z.string().optional() }),
+    handler({ ids, name }) {
+      const objs = ids.map((id) => engine.getObject(id));
+      const parent = objs[0].parent ?? null;
+      if (objs.some((o) => (o.parent ?? null) !== parent)) throw new CommandError('All objects must be in the same group (or all at the top level) to group them.');
+      const c = [0, 1, 2].map((k) => objs.reduce((a, o) => a + o.position[k], 0) / objs.length);
+      c[1] = Math.min(...objs.map((o) => o.position[1])) < 0.001 ? 0 : c[1];
+      const gid = engine.newId(name ?? 'group');
+      engine.scene.objects[gid] = { id: gid, name: name ?? gid, type: 'group', parent, position: c, rotation: [0, 0, 0], scale: [1, 1, 1], visible: true, params: {}, material: null };
+      // the group goes where the first object was in the list, the objects after it
+      const first = Math.min(...ids.map((id) => engine.scene.order.indexOf(id)));
+      engine.scene.order.splice(first, 0, gid);
+      for (const o of objs) {
+        o.parent = gid;
+        o.position = o.position.map((v, k) => v - c[k]);
+      }
+      return { id: gid, children: ids };
+    },
+  });
+
+  registry.define({
+    name: 'ungroup',
+    title: 'Ungroup',
+    category: 'modeling',
+    mutates: true,
+    description: 'Dissolve a group: its objects move up one level and keep their place in the world; the empty group is removed.',
+    input: z.object({ id: z.string() }),
+    handler({ id }) {
+      const g = engine.getObject(id);
+      if (g.type !== 'group') throw new CommandError(`"${g.name}" is not a group.`);
+      const children = engine.childrenOf(id);
+      const G = trs(g.position, g.rotation, g.scale);
+      for (const cid of children) {
+        const o = engine.scene.objects[cid];
+        const world = mul(G, trs(o.position, o.rotation, o.scale));
+        Object.assign(o, { parent: g.parent ?? null, ...decompose(world) });
+      }
+      delete engine.scene.objects[id];
+      engine.scene.order = engine.scene.order.filter((x) => x !== id);
+      for (const a of Object.values(engine.scene.animations ?? {})) a.tracks = a.tracks.filter((t) => t.target !== id);
+      return { children };
     },
   });
 

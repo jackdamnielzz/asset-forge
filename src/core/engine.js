@@ -8,6 +8,7 @@ import { CommandRegistry, CommandError } from './registry.js';
 import { registerBuiltins } from './commands/index.js';
 import { DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '../shared/presets.js';
 import { Providers } from './providers.js';
+import { History } from './history.js';
 
 const HISTORY_LIMIT = 100;
 const actionContext = new AsyncLocalStorage();
@@ -48,6 +49,7 @@ export class Engine extends EventEmitter {
     this.library = { images: {} };
     this.bridge = null;
     this.providers = new Providers(workspace);
+    this.history = new History(workspace);
     this.plugins = [];
     this._queue = Promise.resolve();
     this._saveTimer = null;
@@ -62,6 +64,10 @@ export class Engine extends EventEmitter {
     const last = state?.current ?? 'untitled';
     const loaded = await readJson(this.projectFile(last));
     this.scene = loaded ?? emptyScene(last);
+    // a dated copy of everything once a day (skipped for throwaway test workspaces)
+    if (!process.env.FORGE_NO_BACKUP && (await this.history.lastBackupAge()) > 24 * 3600_000) {
+      this.history.backup().catch((err) => console.error(`[backup] ${err.message}`));
+    }
   }
 
   async loadPlugins() {
@@ -180,6 +186,7 @@ export class Engine extends EventEmitter {
     clearTimeout(this._saveTimer);
     await fs.writeFile(this.projectFile(this.scene.name), JSON.stringify(this.scene, null, 2));
     await fs.writeFile(path.join(this.workspace, 'state.json'), JSON.stringify({ current: this.scene.name }));
+    await this.history.save(this.scene, 'auto');
   }
 
   async saveLibrary() {
@@ -188,6 +195,7 @@ export class Engine extends EventEmitter {
 
   async loadScene(scene) {
     await this.saveCurrent();
+    await this.history.save(this.scene, 'safety', 'before switching or loading');
     this.scene = scene;
     this.undoStack = [];
     this.redoStack = [];

@@ -17,8 +17,9 @@ export function register(registry, { z, engine }) {
     title: 'Clear scene',
     category: 'scene',
     mutates: true,
-    description: 'Remove all objects. Keeps the project name and environment.',
-    handler() {
+    description: 'Remove all objects. Keeps the project name and environment. A version is saved first (see list_versions).',
+    async handler() {
+      await engine.history.save(engine.scene, 'safety', 'before clearing the scene');
       engine.scene.objects = {};
       engine.scene.order = [];
       return { ok: true };
@@ -114,7 +115,8 @@ export function register(registry, { z, engine }) {
     mutates: true,
     description: 'Replace the current scene with a full scene JSON (the format returned by get_scene). Useful for recipes.',
     input: z.object({ scene: z.record(z.string(), z.any()) }),
-    handler({ scene }) {
+    async handler({ scene }) {
+      await engine.history.save(engine.scene, 'safety', 'before loading a scene recipe');
       const base = emptyScene(engine.scene.name);
       const next = { ...base, ...scene, name: engine.scene.name, environment: { ...base.environment, ...scene.environment } };
       if (!next.order) next.order = Object.keys(next.objects ?? {});
