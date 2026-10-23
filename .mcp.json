@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "asset-forge": {
+      "command": "node",
+      "args": ["src/mcp/index.js"]
+    }
+  }
+}
