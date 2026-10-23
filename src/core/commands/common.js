@@ -98,6 +98,9 @@ export function buildParams(type, current, given = {}, engine) {
     if (!FONTS.includes(params.font)) throw new CommandError(`Unknown font. Choose: ${FONTS.join(', ')}`);
   }
   if (type === 'rock') params.detail = Math.max(0, Math.min(5, Math.round(params.detail)));
+  if (type === 'model' && !engine.library.models?.[params.assetId]) {
+    throw new CommandError('Model objects need params.assetId from import_model or generate_3d (see list_library).');
+  }
   if (type === 'image' || type === 'cutout') {
     const asset = engine.library.images[params.assetId];
     if (!asset) throw new CommandError(`${type} objects need params.assetId (from import_image).`);

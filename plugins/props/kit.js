@@ -30,6 +30,7 @@ export function kit(engine, ctx, seed) {
   const rand = mulberry32(seed);
   const add = (a) => engine.execute('add_object', a, ctx.meta);
   return {
+    meta: ctx.meta,
     rand,
     // random number between a and b
     range: (a, b) => a + rand() * (b - a),

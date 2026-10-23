@@ -28,6 +28,11 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
   `src/shared/animations.js` and sampled by the viewer (`SceneView.pose`). Sprite sheets, icons and Godot export
   are bridge requests handled in viewer.js (`renderSprites`, `renderImage` with `isolate`, `exportGlb` with
   `collision`/`animations`); 2D clean-up (palette, outlines) lives in `web/js/pixelart.js`.
+- AI services live in `src/core/providers.js` (OpenAI, Google, NanoGPT, fal). Keys: `workspace/secrets.json` or env vars;
+  never return keys from commands. `test/mock-ai.js` imitates their APIs for `npm test`; real calls are untested without keys.
+  These services cost the user money: ask before calling generate_image / generate_video / generate_3d.
+- Pixel-art pipeline: `web/js/pixelart.js` (palette, dither, selout, clean-up), `web/js/imageops.js` (picture tools, video frames),
+  `web/js/tileset.js` + `src/core/commands/tiles.js` (corner autotiles, Godot TileSet). Palettes: `src/shared/palettes.js`.
 - For development, run a second engine (`FORGE_PORT=7791`, `FORGE_WORKSPACE` in a temp folder) so the user's
   window on 7777 is not disturbed.
 

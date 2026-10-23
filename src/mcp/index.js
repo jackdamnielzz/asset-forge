@@ -29,6 +29,12 @@ How to make beautiful assets:
    render_sprites turns an object into a pixel-art sprite sheet (directions x frames); make_icons renders
    matching inventory icons; export_godot / export_each write .glb files with collision and animations into a
    Godot project; make_level_kit builds snapping floor/wall/door/window/pillar/stairs pieces.
+   Pixel art: make_character (with idle/walk/run/attack/jump), render_sprites with palette (list_palettes), dither,
+   outlineStyle "selout", maps ["normal"] and project (Godot SpriteFrames); make_tileset (autotiles + Godot TileSet);
+   pixelate_image turns any picture into pixel art.
+   AI services (cost the user money, ask first): generate_image (openai, google Nano Banana, nanogpt), generate_video
+   (nanogpt), generate_3d (fal). If you have your own image tools, make the picture there and import_image it.
+   Free picture tools: remove_background, make_seamless, video_to_sprites, import_model (.glb).
 9. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
 
 const server = new Server({ name: 'asset-forge', version: '0.1.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });

@@ -8,6 +8,7 @@ const HELP = `Asset Forge command line
   forge help <command>               show a command's inputs
   forge <command> [key=value ...]    run a command (values may be JSON)
   forge <command> '{"json":"args"}'  run a command with JSON args
+  forge <command> @args.json         run a command with JSON args from a file
   forge run <recipe.json>            run a recipe ({"commands":[...]} or a full scene)
   forge start                        start the engine and open the window
 
@@ -47,7 +48,7 @@ try {
     console.log(JSON.stringify(result, null, 2));
   } else {
     await ensureEngine();
-    const result = await call(cmd, parseArgs(rest), 'cli');
+    const result = await call(cmd, await parseArgs(rest), 'cli');
     if (result?.image) {
       if (out) {
         await fs.writeFile(out, Buffer.from(result.image, 'base64'));
@@ -63,8 +64,10 @@ try {
   process.exitCode = 1;
 }
 
-function parseArgs(list) {
+async function parseArgs(list) {
   if (list.length === 1 && list[0].trim().startsWith('{')) return JSON.parse(list[0]);
+  // @file.json: read the arguments from a file (avoids shell quoting problems)
+  if (list.length === 1 && list[0].startsWith('@')) return JSON.parse(await fs.readFile(list[0].slice(1), 'utf8'));
   const args = {};
   for (const item of list) {
     const eq = item.indexOf('=');

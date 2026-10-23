@@ -4,12 +4,13 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { LIGHTING_PRESETS, PATTERNS, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '/shared/presets.js';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Brush, Evaluator, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg';
 import { createComposer, tuneComposer, disposeComposer, compensateBackground } from './effects.js';
 import { generatePattern } from './patterns.js';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { latheGeometry, extrudeGeometry, textGeometry, rockGeometry, cutoutGeometry, traceImage } from './shapes.js';
-import { hardenAlpha, quantize, pixelOutline, softOutline } from './pixelart.js';
+import { hardenAlpha, quantize, pixelOutline, softOutline, seloutOutline, cleanupPixels } from './pixelart.js';
 import { sampleObject } from '/shared/animations.js';
 
 const CSG_OPS = { subtract: SUBTRACTION, union: ADDITION, intersect: INTERSECTION };
@@ -117,7 +118,8 @@ export class SceneView {
       if (!o) continue;
       seen.add(id);
       let node = this.nodes.get(id);
-      const isGroup = o.type === 'group';
+      // groups and imported models are containers; everything else is one mesh
+      const isGroup = o.type === 'group' || o.type === 'model';
       if (!node || (node.obj.isGroup !== isGroup)) {
         if (node) node.obj.removeFromParent();
         node = { obj: isGroup ? new THREE.Group() : new THREE.Mesh(), geoKey: null, matKey: null, outline: null };
@@ -126,6 +128,7 @@ export class SceneView {
       }
       const obj = node.obj;
       obj.name = o.name;
+      if (o.type === 'model') this.syncModel(node, o);
       if (!isGroup) {
         const m = o.material;
         const surface = hasSurface(o);
@@ -178,6 +181,34 @@ export class SceneView {
     }
     this.applyBooleans(data);
     this.applyEnvironment(data.environment);
+  }
+
+  // Imported .glb model: loaded once, then a copy is scaled to the wanted height and
+  // stood on the ground at the object's origin.
+  syncModel(node, o) {
+    const asset = this.library.models?.[o.params.assetId];
+    if (!asset) return;
+    const gltf = this.models?.get(asset.file);
+    const key = `${asset.file}|${o.params.size}|${!!gltf}`;
+    if (node.modelKey === key) return;
+    if (!gltf) {
+      this.models ??= new Map();
+      this.track(`model:${asset.file}`, new GLTFLoader().loadAsync(`/library/models/${asset.file}`).then((g) => this.models.set(asset.file, g)));
+      return;
+    }
+    node.modelKey = key;
+    for (const child of [...node.obj.children]) if (child.userData.isModelContent) child.removeFromParent();
+    const copy = gltf.scene.clone(true);
+    copy.userData.isModelContent = true;
+    copy.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.userData.forgeId = o.id; } });
+    copy.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(copy);
+    const h = box.max.y - box.min.y;
+    const s = o.params.size > 0 && h > 0 ? o.params.size / h : 1;
+    copy.scale.multiplyScalar(s);
+    const c = box.getCenter(new THREE.Vector3());
+    copy.position.set(-c.x * s, -box.min.y * s, -c.z * s);
+    node.obj.add(copy);
   }
 
   // Fonts (text) and traced outlines (cut-outs) load in the background; when ready the
@@ -642,26 +673,35 @@ export class SceneView {
 
   // ---- sprites ------------------------------------------------------------------
 
-  async renderSprites({ target, directions = 8, frameSize = 64, animation, frames = 1, elevation = 30, pixelArt = true, colors = 24, palette, outline = '#16171b', groundShadow = false }) {
+  // Sprite sheet: rows = (animation ×) direction, columns = frames. Besides the colour sheet
+  // it can make a normal map (for 2D lights) and a glow map from exactly the same frames.
+  async renderSprites({
+    target, directions = 8, frameSize = 64, animations = [], frames = 1, elevation = 30, azimuthOffset = 0,
+    pixelArt = true, colors = 24, palette, dither = 0, outline = '#16171b', outlineStyle = 'solid', cleanup = true,
+    pixelsPerMetre = null, groundShadow = false, maps = [],
+  }) {
     await this.whenReady();
     this.resetPose();
     const env = this.data.environment;
-    const anim = animation ? this.data.animations?.[animation] : null;
-    const frameCount = anim ? frames : 1;
+    const anims = animations.length ? animations.map((name) => ({ name, def: this.data.animations?.[name] })) : [{ name: null, def: null }];
+    const frameCount = anims[0].def ? frames : 1;
     const restoreIsolation = target ? this.isolate(target) : null;
     const root = (target && this.nodes.get(target)?.obj) || this.content;
 
-    // one fixed frame for all directions and frames, so the sprite never jumps or resizes
+    // one fixed frame for every direction, animation and frame, so the sprite never jumps or resizes
     const box = new THREE.Box3();
-    for (let f = 0; f < frameCount; f++) {
-      if (anim) this.pose(animation, f / frameCount);
-      box.union(contentBox(root));
+    for (const a of anims) {
+      for (let f = 0; f < frameCount; f++) {
+        if (a.def) this.pose(a.name, f / frameCount);
+        box.union(contentBox(root));
+      }
     }
     this.resetPose();
     if (box.isEmpty()) box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
     const center = box.getCenter(new THREE.Vector3());
-    const radius = box.getBoundingSphere(new THREE.Sphere()).radius * 1.02;
-    const cam = new THREE.OrthographicCamera(-radius, radius, radius, -radius, radius * 0.1, radius * 30);
+    // fixed pixels per metre keeps different assets at the same scale; otherwise fit the frame
+    const radius = pixelsPerMetre ? frameSize / pixelsPerMetre / 2 : box.getBoundingSphere(new THREE.Sphere()).radius * (1 + 2.5 / frameSize);
+    const cam = new THREE.OrthographicCamera(-radius, radius, radius, -radius, radius * 0.05, radius * 40);
 
     const prevSize = this.renderer.getSize(new THREE.Vector2());
     const prevRatio = this.renderer.getPixelRatio();
@@ -674,32 +714,66 @@ export class SceneView {
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(res, res, false);
 
-    const sheet = document.createElement('canvas');
-    sheet.width = frameCount * frameSize;
-    sheet.height = directions * frameSize;
-    const ctx = sheet.getContext('2d');
-    ctx.imageSmoothingEnabled = !pixelArt;
-    ctx.imageSmoothingQuality = 'high';
+    const rows = [];
+    for (const a of anims) for (let d = 0; d < directions; d++) rows.push({ anim: a, d });
+    const makeSheet = () => {
+      const c = document.createElement('canvas');
+      c.width = frameCount * frameSize;
+      c.height = rows.length * frameSize;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingEnabled = !pixelArt;
+      ctx.imageSmoothingQuality = 'high';
+      return { c, ctx };
+    };
+    const passes = [{ kind: 'color', ...makeSheet() }];
+    if (maps.includes('normal')) passes.push({ kind: 'normal', ...makeSheet() });
+    const glowParts = maps.includes('emission') ? this.emissiveMeshes(root) : [];
+    if (glowParts.length) passes.push({ kind: 'emission', ...makeSheet() });
+
     const el = elevation * DEG;
-    for (let d = 0; d < directions; d++) {
-      const az = (d / directions) * Math.PI * 2;
+    const normalMat = new THREE.MeshNormalMaterial();
+    rows.forEach(({ anim: a, d }, r) => {
+      const az = (d / directions) * Math.PI * 2 + azimuthOffset * DEG;
       cam.position.set(center.x + Math.sin(az) * Math.cos(el) * radius * 10, center.y + Math.sin(el) * radius * 10, center.z + Math.cos(az) * Math.cos(el) * radius * 10);
       cam.lookAt(center);
       for (let f = 0; f < frameCount; f++) {
-        if (anim) this.pose(animation, f / frameCount);
-        this.renderer.render(this.scene, cam);
-        ctx.drawImage(this.canvas, f * frameSize, d * frameSize, frameSize, frameSize);
+        if (a.def) this.pose(a.name, f / frameCount);
+        for (const p of passes) {
+          if (p.kind === 'normal') { this.scene.overrideMaterial = normalMat; this.ground.visible = false; }
+          if (p.kind === 'emission') this.swapToGlow(glowParts, true);
+          this.renderer.render(this.scene, cam);
+          p.ctx.drawImage(this.canvas, f * frameSize, r * frameSize, frameSize, frameSize);
+          this.scene.overrideMaterial = null;
+          this.ground.visible = groundShadow;
+          if (p.kind === 'emission') this.swapToGlow(glowParts, false);
+        }
       }
-    }
+    });
     this.resetPose();
+    normalMat.dispose();
 
     let usedPalette = null;
+    const color = passes[0];
+    const colorImg = color.ctx.getImageData(0, 0, color.c.width, color.c.height);
     if (pixelArt) {
-      const img = ctx.getImageData(0, 0, sheet.width, sheet.height);
-      hardenAlpha(img);
-      usedPalette = quantize(img, colors, palette);
-      if (outline) pixelOutline(img, outline);
-      ctx.putImageData(img, 0, 0);
+      hardenAlpha(colorImg);
+      usedPalette = quantize(colorImg, colors, palette, dither);
+      if (cleanup) cleanupPixels(colorImg);
+      if (outline && outlineStyle === 'selout') seloutOutline(colorImg, palette);
+      else if (outline) pixelOutline(colorImg, outline);
+      color.ctx.putImageData(colorImg, 0, 0);
+    }
+    // extra maps share the colour sheet's exact shape
+    const out = {};
+    for (const p of passes.slice(1)) {
+      const img = p.ctx.getImageData(0, 0, p.c.width, p.c.height);
+      for (let i = 0; i < img.data.length; i += 4) {
+        const a = colorImg.data[i + 3];
+        if (p.kind === 'normal' && (a === 0 || img.data[i + 3] === 0)) img.data.set([128, 128, 255], i);
+        img.data[i + 3] = pixelArt ? (a ? 255 : 0) : a;
+      }
+      p.ctx.putImageData(img, 0, 0);
+      out[p.kind] = p.c.toDataURL('image/png').split(',')[1];
     }
 
     this.helpers.visible = helpersVisible;
@@ -710,13 +784,45 @@ export class SceneView {
     restoreIsolation?.();
 
     const names = { 1: ['down'], 4: ['down', 'left', 'up', 'right'], 8: ['down', 'down_left', 'left', 'up_left', 'up', 'up_right', 'right', 'down_right'] }[directions];
+    const def = anims[0].def;
     return {
-      png: sheet.toDataURL('image/png').split(',')[1],
+      png: color.c.toDataURL('image/png').split(',')[1],
+      normal: out.normal ?? null,
+      emission: out.emission ?? null,
       meta: {
-        frameSize, rows: directions, columns: frameCount, directions: names, animation: animation ?? null,
-        fps: anim ? Math.round((frameCount / anim.duration) * 100) / 100 : null, palette: usedPalette,
+        frameSize, rows: rows.length, columns: frameCount, directions: names,
+        rowNames: rows.map(({ anim: a, d }) => (a.name ? `${a.name}_${names[d]}` : names[d])),
+        animations: anims.map((a) => a.name).filter(Boolean),
+        fps: def ? Math.round((frameCount / def.duration) * 100) / 100 : null,
+        pixelsPerMetre: pixelsPerMetre ?? Math.round((frameSize / (2 * radius)) * 100) / 100,
+        palette: usedPalette,
       },
     };
+  }
+
+  emissiveMeshes(root) {
+    const list = [];
+    root.traverseVisible((m) => {
+      if (m.isMesh && !m.userData.isOutline && m.material?.emissive && m.material.emissiveIntensity > 0 && m.material.emissive.getHex() !== 0) list.push(m);
+    });
+    return list;
+  }
+
+  // For the glow map: everything black except glowing parts in their glow colour.
+  swapToGlow(glowParts, on) {
+    if (on) {
+      this.glowSaved = [];
+      this.content.traverse((m) => {
+        if (!m.isMesh || m.userData.isOutline) return;
+        this.glowSaved.push([m, m.material]);
+        const glow = glowParts.includes(m);
+        m.material = new THREE.MeshBasicMaterial({ color: glow ? m.material.emissive.clone().multiplyScalar(Math.min(1, m.material.emissiveIntensity / 2)) : 0x000000 });
+      });
+      this.ground.visible = false;
+    } else {
+      for (const [m, mat] of this.glowSaved ?? []) { m.material.dispose(); m.material = mat; }
+      this.glowSaved = null;
+    }
   }
 
   // ---- export -----------------------------------------------------------------

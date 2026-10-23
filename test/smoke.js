@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { startMockAi } from './mock-ai.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 7790;
@@ -12,7 +13,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'forge-test-'));
 
 const proc = spawn(process.execPath, ['src/server/index.js', '--no-open'], {
-  cwd: ROOT, env: { ...process.env, FORGE_PORT: String(PORT), FORGE_WORKSPACE: workspace }, stdio: ['ignore', 'inherit', 'inherit'],
+  cwd: ROOT, env: { ...process.env, FORGE_PORT: String(PORT), FORGE_WORKSPACE: workspace, FORGE_POLL_MS: '50', OPENAI_API_KEY: '', GEMINI_API_KEY: '', NANOGPT_API_KEY: '', FAL_KEY: '' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
 
 async function call(name, args = {}) {
@@ -119,7 +120,7 @@ try {
   const sprites = await call('render_sprites', { target: coin.id, filename: 'coin', animation: 'idle', frames: 6, frameSize: 48, directions: 4 });
   const sheet = Buffer.from(sprites.image, 'base64');
   check(sheet.readUInt32BE(16) === 6 * 48 && sheet.readUInt32BE(20) === 4 * 48 && sprites.palette.length > 3, 'sprite sheet has frames x directions and a palette');
-  await fs.copyFile(sprites.path, path.join(ROOT, 'test', 'last-sprites.png'));
+  await fs.copyFile(sprites.files.color, path.join(ROOT, 'test', 'last-sprites.png'));
   const chest = await call('make_chest', { position: [2, 0, 0] });
   const lid = Object.values((await call('get_scene')).objects).find((o) => o.parent === chest.id && o.name === 'lid');
   await call('animate_object', { id: lid.id, preset: 'hinge', animation: 'open', duration: 2 });
@@ -142,6 +143,59 @@ try {
   check(each.files.length === 6, `level kit exports 6 separate pieces`);
   const kitShot = await call('render_preview', { width: 640, height: 360 });
   await fs.writeFile(path.join(ROOT, 'test', 'last-kit.png'), Buffer.from(kitShot.image, 'base64'));
+
+  // Phase 5a: AI services (against a fake server), picture tools, 3D model import
+  const ai = await startMockAi(7796, { png: shot.image, glb: await fs.readFile(each.files[0]) });
+  try {
+    const before = await call('list_ai_services');
+    check(Object.keys(before).length === 4 && !before.openai.connected, 'lists AI services, none connected yet');
+    const noKey = await fetch(`${BASE}/api/commands/generate_image`, { method: 'POST', body: JSON.stringify({ service: 'openai', prompt: 'a red apple' }) }).then((r) => r.json());
+    check(!noKey.ok && /not connected/.test(noKey.error), 'explains how to connect a service');
+    for (const s of ['openai', 'google', 'nanogpt', 'fal']) await call('connect_ai_service', { service: s, key: `test-key-${s}`, baseUrl: `${ai.base}/${s}` });
+    const status = await call('list_ai_services');
+    check(status.google.connected && !JSON.stringify(status).includes('test-key'), 'keys are saved but never sent back');
+    const o1 = await call('generate_image', { service: 'openai', prompt: 'a red apple icon', transparent: true });
+    const oreq = ai.seen.find((r) => r.url === '/openai/images/generations');
+    check(o1.assetId && oreq.headers.authorization === 'Bearer test-key-openai' && oreq.body.background === 'transparent', 'OpenAI: request and image import');
+    const g1 = await call('generate_image', { service: 'google', model: 'gemini-nano-banana-2.1', prompt: 'repaint as pixel art', references: [o1.assetId] });
+    const greq = ai.seen.find((r) => r.url.includes(':generateContent'));
+    check(g1.assetId && greq.headers['x-goog-api-key'] === 'test-key-google' && greq.body.contents[0].parts[1].inline_data.data.length > 100, 'Google Nano Banana: reference image sent');
+    const n1 = await call('generate_image', { service: 'nanogpt', model: 'flux-kontext', prompt: 'make it night', references: [g1.assetId], transparent: true });
+    const nreq = ai.seen.find((r) => r.url === '/nanogpt/v1/images/generations');
+    check(n1.assetId && nreq.body.imageDataUrl.startsWith('data:image/png;base64,'), 'NanoGPT: image-to-image request');
+    const vid = await call('generate_video', { service: 'nanogpt', prompt: 'a campfire', image: n1.assetId, duration: 5 });
+    check(vid.videoId && ai.seen.some((r) => r.url.startsWith('/nanogpt/video/status?requestId=vid_test1')), 'NanoGPT: video job is polled and saved');
+    const m3d = await call('generate_3d', { service: 'fal', image: o1.assetId, size: 1.2 });
+    const freq = ai.seen.find((r) => r.url === '/fal/fal-ai/trellis-2');
+    check(m3d.objectId && freq.headers.authorization === 'Key test-key-fal' && freq.body.image_url.startsWith('data:image'), 'fal.ai: image → 3D model placed in the scene');
+    const modelShot = await call('render_preview', { target: m3d.objectId, width: 256, height: 256 });
+    check(Buffer.from(modelShot.image, 'base64').length > 4000, 'AI 3D model renders');
+  } finally {
+    ai.server.close();
+  }
+  const px = await call('pixelate_image', { assetId: (await call('list_images'))[0].id, size: 32, palette: 'pico8' });
+  check(px.width <= 32 && px.height <= 32, 'picture → pixel art');
+  const seam = await call('make_seamless', { assetId: px.assetId });
+  check(!!seam.assetId, 'photo → seamless texture');
+  const imported = await call('import_model', { path: each.files[1], size: 2 });
+  check(!!imported.objectId, 'imports a .glb model');
+
+  // Phase 5b: pixel art — character, sprites with palette/selout/normal map, tileset, Godot resources
+  await call('clear_scene');
+  const hero = await call('make_character', { weapon: 'sword' });
+  const heroAnims = await call('list_animations');
+  check(['idle', 'walk', 'run', 'attack', 'jump'].every((a) => heroAnims[a]), 'character comes with idle/walk/run/attack/jump');
+  const heroSprites = await call('render_sprites', {
+    target: hero.id, filename: 'hero', animations: ['idle', 'walk'], frames: 4, frameSize: 32, directions: 4,
+    palette: 'endesga32', outlineStyle: 'selout', dither: 0.4, maps: ['normal'], project: godot,
+  });
+  const tres = await fs.readFile(heroSprites.files.spriteFrames, 'utf8');
+  check(heroSprites.rows === 8 && heroSprites.files.normal && /SpriteFrames/.test(tres) && /&"walk_left"/.test(tres) && /CanvasTexture/.test(tres), 'character sprite sheet + Godot SpriteFrames with normal map');
+  await fs.copyFile(heroSprites.files.color, path.join(ROOT, 'test', 'last-hero.png'));
+  const tileset = await call('make_tileset', { filename: 'grass_dirt', tileSize: 16, project: godot });
+  const tileTres = await fs.readFile(tileset.files.tileset, 'utf8');
+  check(/terrain_set_0\/mode = 1/.test(tileTres) && (tileTres.match(/peering_bit/g) ?? []).length === 64, 'tileset + Godot TileSet with corner terrains');
+  await fs.copyFile(tileset.files.atlas, path.join(ROOT, 'test', 'last-tiles.png'));
 
   await call('open_project', { name: 'untitled' });
 

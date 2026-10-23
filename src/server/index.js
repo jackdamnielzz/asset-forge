@@ -25,6 +25,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.glb': 'model/gltf-binary', '.wasm': 'application/wasm',
+  '.mp4': 'video/mp4', '.webm': 'video/webm',
 };
 
 const engine = new Engine({
@@ -141,6 +142,8 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/' || p === '/index.html') return sendFile(res, path.join(ROOT, 'web', 'index.html'));
     if (p.startsWith('/library/images/')) return sendFile(res, safeJoin(engine.paths.images, p.slice('/library/images/'.length)));
+    if (p.startsWith('/library/models/')) return sendFile(res, safeJoin(path.join(engine.paths.library, 'models'), p.slice('/library/models/'.length)));
+    if (p.startsWith('/library/videos/')) return sendFile(res, safeJoin(path.join(engine.paths.library, 'videos'), p.slice('/library/videos/'.length)));
     if (p.startsWith('/exports/')) return sendFile(res, safeJoin(engine.paths.exports, p.slice('/exports/'.length)));
     for (const [prefix, dir] of Object.entries(STATIC)) {
       if (p.startsWith(prefix)) return sendFile(res, safeJoin(dir, p.slice(prefix.length)));

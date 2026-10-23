@@ -173,6 +173,46 @@ const PATTERNS = {
     return grey(b, 0.9 + fine * 0.1, 1, big * 0.2 + fine * 0.1 - pore * 0.5);
   },
 
+  // ground types, mainly for tilesets
+  grass: (n, o) => {
+    const [light, dark] = [o.colors[0] ?? [0.42, 0.68, 0.29], o.colors[1] ?? [0.2, 0.42, 0.2]];
+    return (u, v) => {
+      const blades = n.fbm(u, v, 24, 40, 2);
+      const patches = n.fbm(u, v, 3, 3, 3);
+      const t = smoothstep(0.35, 0.75, blades * 0.7 + patches * 0.5);
+      const flower = n.fbm(u + 0.5, v, 32, 32, 1) > 0.86 + (1 - o.variation) * 0.1 ? 1 : 0;
+      const c = flower ? [0.96, 0.9, 0.55] : mix3(dark, light, t);
+      return [c[0], c[1], c[2], 0.9, 0, blades * 0.6];
+    };
+  },
+  dirt: (n, o) => {
+    const [light, dark] = [o.colors[0] ?? [0.6, 0.43, 0.28], o.colors[1] ?? [0.36, 0.24, 0.15]];
+    return (u, v) => {
+      const f = n.fbm(u, v, 6, 6, 4);
+      const pebble = smoothstep(0.7, 0.76, n.fbm(u, v, 20, 20, 2));
+      const c = mix3(mix3(dark, light, f), [0.68, 0.62, 0.55], pebble * (0.5 + o.variation * 0.5));
+      return [c[0], c[1], c[2], 0.95, 0, f * 0.4 + pebble * 0.5];
+    };
+  },
+  sand: (n, o) => {
+    const [light, dark] = [o.colors[0] ?? [0.9, 0.79, 0.56], o.colors[1] ?? [0.76, 0.62, 0.4]];
+    return (u, v) => {
+      const ripple = Math.sin((v * 6 + n.fbm(u, v, 3, 3, 3) * 1.5) * TAU) * 0.5 + 0.5;
+      const grain = n.fbm(u, v, 64, 64, 1);
+      const c = mix3(dark, light, ripple * 0.6 + grain * 0.4);
+      return [c[0], c[1], c[2], 0.9, 0, ripple * 0.3];
+    };
+  },
+  water: (n, o) => {
+    const [deep, light] = [o.colors[0] ?? [0.18, 0.43, 0.72], o.colors[1] ?? [0.62, 0.85, 1]];
+    return (u, v) => {
+      const w = n.fbm(u, v, 4, 6, 4);
+      const crest = smoothstep(0.62 - o.variation * 0.08, 0.7, n.fbm(u + w * 0.2, v, 6, 12, 3));
+      const c = mix3(mix3(deep, [deep[0] * 0.8, deep[1] * 0.9, deep[2]], w), light, crest * 0.8);
+      return [c[0], c[1], c[2], 0.15, 0, w * 0.3];
+    };
+  },
+
   painted: (n, o) => (u, v) => {
     const region = n.fbm(u, v, 3, 3, 3);
     const strokeA = n.fbm(u, v, 3, 24, 3);

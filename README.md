@@ -3,7 +3,7 @@
 Our own asset-creation tool, in the spirit of Blender, built so that **AI models can drive
 it completely**, and people can too. See [PLAN.md](PLAN.md) for the vision and roadmap.
 
-**Status:** Phases 1 (Foundation), 2 (Beauty), 3 (Shapes & generators) and 4 (Made for our games) are done.
+**Status:** Phases 1–5 are done (foundation, beauty, shapes & generators, games, pixel art & AI services).
 
 ## Starting it
 
@@ -62,6 +62,32 @@ The window lives at <http://127.0.0.1:7777>. Everything is saved automatically.
 - **Level kits**: `make_level_kit` (dungeon, cottage, scifi) builds floor, wall, door, window, pillar and stairs pieces on a grid.
 - **Snapping**: the small selector under the move/rotate/scale buttons snaps to a grid and to 15° turns.
 - Everything is in the new **🎮 Game** window too.
+
+## What's in Phase 5
+
+**AI services** (window: **✨ AI**). Paste your own API key under Services; keys stay in `workspace/secrets.json`.
+
+| Service | Makes | Commands |
+|---|---|---|
+| OpenAI (gpt-image) | images, transparent backgrounds, edits with reference pictures | `generate_image` |
+| Google Gemini (Nano Banana 2.1 and others) | images, edits with reference pictures | `generate_image` |
+| NanoGPT (many models: Flux, HiDream, gpt-image, Veo, Kling, Wan…) | images, videos | `generate_image`, `generate_video` |
+| fal.ai (Trellis 2, Hunyuan 3D) | 3D models from a picture or text | `generate_3d` |
+
+`generate_image` can also send a render of your own 3D object as reference ("repaint this as pixel art").
+AIs that have their own image tools (like PixelLab in Claude Code) can simply `import_image` their results.
+
+**Picture tools** (free): `remove_background`, `make_seamless` (photo → tiling texture), `pixelate_image`
+(picture → pixel art), `video_to_sprites`, and `import_model` for any `.glb`.
+
+**Pixel art**
+- Palettes: `list_palettes` (pico8, sweetie16, endesga32, db16, gameboy, onebit) or your own colours
+- `render_sprites` now has dithering, `outlineStyle: "selout"`, pixel clean-up, `pixelsPerMetre` (same scale for all assets),
+  `azimuthOffset` (diamond isometric), several `animations` in one sheet, `maps: ["normal", "emission"]` for Godot 2D lights,
+  and `project` to write a Godot **SpriteFrames** `.tres` (ready for AnimatedSprite2D)
+- `make_tileset`: seamless pixel tiles where one ground blends into another (16 corner tiles), plus a Godot **TileSet** with terrains
+- `make_character`: a jointed character with idle, walk, run, attack and jump, ready for 8-direction sprites
+- CLI tip: `node src/cli/forge.js <command> @args.json` reads arguments from a file
 
 ## How AIs control it
 

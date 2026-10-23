@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { CommandRegistry, CommandError } from './registry.js';
 import { registerBuiltins } from './commands/index.js';
 import { DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '../shared/presets.js';
+import { Providers } from './providers.js';
 
 const HISTORY_LIMIT = 100;
 const actionContext = new AsyncLocalStorage();
@@ -46,6 +47,7 @@ export class Engine extends EventEmitter {
     this.redoStack = [];
     this.library = { images: {} };
     this.bridge = null;
+    this.providers = new Providers(workspace);
     this.plugins = [];
     this._queue = Promise.resolve();
     this._saveTimer = null;

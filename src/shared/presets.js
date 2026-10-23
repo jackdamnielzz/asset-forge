@@ -46,6 +46,10 @@ export const PATTERNS = {
   rust:            { kind: 'absolute', description: 'Metal with rust patches. colors = [metal, rust]', colors: ['#9ea3aa', '#8c3d17'] },
   brick:           { kind: 'absolute', description: 'Brick wall with mortar. colors = [brick, mortar]', colors: ['#8f3a24', '#b8b0a3'] },
   tiles:           { kind: 'absolute', description: 'Square glossy tiles with grout. colors = [tile, grout]', colors: ['#e2e2dc', '#77736d'] },
+  grass:           { kind: 'absolute', description: 'Grass with patches and a few flowers. colors = [light, dark]', colors: ['#6bad4a', '#336b33'] },
+  dirt:            { kind: 'absolute', description: 'Earth with pebbles. colors = [light, dark]', colors: ['#996e47', '#5c3d26'] },
+  sand:            { kind: 'absolute', description: 'Sand with wind ripples. colors = [light, dark]', colors: ['#e6c98f', '#c29e66'] },
+  water:           { kind: 'absolute', description: 'Water with wave crests. colors = [deep, crest]', colors: ['#2e6db8', '#9ed8ff'] },
 };
 
 export const STYLES = {
@@ -108,7 +112,7 @@ export const LIGHTING_PRESETS = {
   },
 };
 
-export const OBJECT_TYPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'capsule', 'lathe', 'extrude', 'text', 'rock', 'image', 'cutout', 'group'];
+export const OBJECT_TYPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'capsule', 'lathe', 'extrude', 'text', 'rock', 'image', 'cutout', 'model', 'group'];
 
 export const SHAPE_DEFAULTS = {
   box:      { width: 1, height: 1, depth: 1, bevel: 0.04, bevelSegments: 4 },
@@ -124,6 +128,7 @@ export const SHAPE_DEFAULTS = {
   rock:     { radius: 0.5, detail: 3, roughness: 0.35, flatten: 0.35, sharpness: 0.5, seed: 1 },
   image:    { assetId: null, width: 1, height: 1 },
   cutout:   { assetId: null, width: 1, height: 1, depth: 0.05, bevel: 0.006, threshold: 0.5 },
+  model:    { assetId: null, size: 1 },
   group:    {},
 };
 
@@ -135,6 +140,7 @@ export const SHAPE_NOTES = {
   text: 'fonts: helvetiker_regular, helvetiker_bold, optimer_regular, optimer_bold, gentilis_regular, gentilis_bold',
   rock: 'lumpy natural stone. roughness = bumpiness, flatten = flat bottom, sharpness 0 = smooth, 1 = faceted. Different seed = different rock',
   cutout: 'turns an image into a solid shape that follows its outline (transparent PNGs work best). threshold 0-1 decides what counts as background',
+  model: 'a ready-made 3D model from the library (import_model or generate_3d). size = height in metres, 0 = original size. Keeps its own materials',
 };
 
 export const FONTS = ['helvetiker_regular', 'helvetiker_bold', 'optimer_regular', 'optimer_bold', 'gentilis_regular', 'gentilis_bold'];

@@ -1,0 +1,5 @@
+{
+  "commands": [
+    { "command": "make_character", "args": { "name": "wizard", "weapon": "staff", "hat": "wizard", "shirt": "#6a3fa0", "pants": "#2f2a45", "seed": 3 } }
+  ]
+}

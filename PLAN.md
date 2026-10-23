@@ -104,14 +104,30 @@
 - Simple animations (spin, bob, open lid) → animated sprite sheets / animated GLB
 - Level building kits (snapping wall/floor/corner pieces)
 
-### Phase 5 — AI superpowers
+### Phase 5 — Pixel art & AI services ✅ done (2026-10-23)
+- Connections to AI services: OpenAI (gpt-image), Google Nano Banana, NanoGPT (images + video), fal.ai (image/text → 3D)
+- Import 3D models (.glb); picture tools: remove background, photo → seamless texture, picture → pixel art, video → sprite sheet
+- Palette library (PICO-8, Sweetie 16, Endesga 32, DB16, Game Boy, 1-bit), dithering, selout outlines, pixel clean-up
+- Stable fixed-scale sprite camera, 2D normal maps and glow maps, several animations per sheet
+- Pixel tileset generator with corner autotiles + Godot TileSet (terrains)
+- Character maker with idle/walk/run/attack/jump
+- Godot SpriteFrames export for AnimatedSprite2D
+
+### Phase 6 — AI superpowers
 - Recipes: every asset remembers how it was made and can be re-made with changes
 - Variations grid ("make 12 versions")
 - Quality check (floating parts, overlaps, size, polygon count)
 - House style (shared palette, materials and lighting for one game)
-- AI texture generation (e.g. PixelLab) and photo → seamless texture
 
-### Phase 6 — Comfort & sharing
+### Phase 7 — More pixel art
+- Pixel editor inside the app (pencil, fill, mirror, onion skin)
+- Palette swaps (colour variants of one sprite) and "steal a palette" from a picture
+- Effects: explosions, fire, smoke, magic, hit sparks, glitter
+- Parallax backgrounds, isometric tiles from level kits, prop sheets
+- Voxel building and .vox import; pixel sprite → 3D blocks
+- PixelLab teamwork (our render as guide, AI paints the pixels), style check, Aseprite export
+
+### Phase 8 — Comfort & sharing
 - Size reference (1.8 m person)
 - Asset library with thumbnails, tags and search
 - Real Windows program with its own icon

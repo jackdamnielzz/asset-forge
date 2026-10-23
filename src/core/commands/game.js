@@ -4,6 +4,7 @@ import { safeName } from '../engine.js';
 import { CommandError } from '../registry.js';
 import { color } from './common.js';
 import { VIEWS } from './render.js';
+import { PALETTES, resolvePalette } from '../../shared/palettes.js';
 
 const COLLISION = ['box', 'convex', 'mesh', 'none'];
 
@@ -59,36 +60,65 @@ export function register(registry, { z, engine }) {
     category: 'game',
     description:
       'Turn a 3D object into a 2D sprite sheet for 2D games. Rows = directions (1, 4 or 8; row 0 = facing the viewer/down, ' +
-      'then down-left, left, up-left, up, up-right, right, down-right for 8), columns = animation frames. ' +
-      'pixelArt gives crisp pixels with a limited colour palette and an outline. Saves exports/sprites/<filename>.png plus a .json with the layout, and returns the sheet so you can look at it.',
+      'then down-left, left, up-left, up, up-right, right, down-right for 8), repeated per animation when several are given; columns = frames. ' +
+      'pixelArt gives crisp pixels with a limited palette (a named palette like "pico8" or "endesga32", or a colour list), optional dithering, ' +
+      'clean-up and an outline (solid, or "selout" = darker shade of the touching colour). maps ["normal", "emission"] also writes a normal map ' +
+      '(for Godot 2D lights) and a glow map. pixelsPerMetre keeps several assets at the same scale. ' +
+      'With project (a Godot project folder) the files go there plus a SpriteFrames .tres for AnimatedSprite2D. Returns the sheet so you can look at it.',
     input: z.object({
       target: z.string().optional().describe('Object or group id; default the whole scene'),
       filename: z.string(),
       directions: z.union([z.literal(1), z.literal(4), z.literal(8)]).optional().describe('Default 8'),
       frameSize: z.number().int().min(8).max(1024).optional().describe('Pixels per frame, default 64'),
-      animation: z.string().optional().describe('Animation to sample (see list_animations)'),
+      animation: z.string().optional().describe('One animation to sample (see list_animations)'),
+      animations: z.array(z.string()).optional().describe('Several animations in one sheet, e.g. ["idle", "walk", "attack"]'),
       frames: z.number().int().min(1).max(64).optional().describe('Frames per direction when animated, default 8'),
-      elevation: z.number().min(0).max(90).optional().describe('Camera angle above the ground in degrees: 0 = side view, 30 = classic isometric (default), 60+ = top-down'),
+      elevation: z.number().min(0).max(90).optional().describe('Camera angle above the ground: 0 = side view, 30 = classic 2:1 isometric (default), 60+ = top-down'),
+      azimuthOffset: z.number().optional().describe('Turn the camera around the object first, in degrees (45 gives diamond-shaped isometric tiles)'),
+      pixelsPerMetre: z.number().min(1).max(2048).optional().describe('Fixed scale (e.g. 32); default fits the object in the frame'),
       pixelArt: z.boolean().optional().describe('Default true'),
-      colors: z.number().int().min(2).max(256).optional().describe('Palette size for pixel art, default 24'),
-      palette: z.array(color).optional().describe('Force these exact colours (house style)'),
-      outline: color.nullable().optional().describe('Pixel outline colour, null for none (default dark)'),
+      colors: z.number().int().min(2).max(256).optional().describe('Palette size when no palette is given, default 24'),
+      palette: z.union([z.string(), z.array(color)]).optional(),
+      dither: z.number().min(0).max(1).optional().describe('Checkered shading between colours, 0 = none (default), 0.5 = subtle, 1 = strong'),
+      outline: color.nullable().optional().describe('Outline colour for the solid style, null for no outline (default dark)'),
+      outlineStyle: z.enum(['solid', 'selout']).optional(),
+      cleanup: z.boolean().optional().describe('Remove lonely stray pixels (default true)'),
+      maps: z.array(z.enum(['normal', 'emission'])).optional(),
       groundShadow: z.boolean().optional().describe('Keep the soft shadow under the object (default false)'),
+      project: z.string().optional().describe('Godot project folder: write the sprites there with a SpriteFrames .tres'),
+      folder: z.string().optional().describe('Folder inside the Godot project, default "assets/forge/sprites"'),
     }),
     async handler(args) {
       if (args.target) engine.getObject(args.target);
-      if (args.animation && !engine.scene.animations?.[args.animation]) throw new CommandError(`No animation "${args.animation}".`);
+      const names = args.animations ?? (args.animation ? [args.animation] : []);
+      for (const n of names) if (!engine.scene.animations?.[n]) throw new CommandError(`No animation "${n}". Existing: ${Object.keys(engine.scene.animations ?? {}).join(', ') || '(none)'}`);
+      const palette = args.palette ? resolvePalette(args.palette) : null;
+      if (args.palette && !palette) throw new CommandError(`Unknown palette "${args.palette}". Choose: ${Object.keys(PALETTES).join(', ')}`);
       const out = await engine.bridge.request('render_sprites', {
         target: args.target, directions: args.directions ?? 8, frameSize: args.frameSize ?? 64,
-        animation: args.animation, frames: args.animation ? args.frames ?? 8 : 1, elevation: args.elevation ?? 30,
-        pixelArt: args.pixelArt ?? true, colors: args.colors ?? 24, palette: args.palette,
-        outline: args.outline === undefined ? '#16171b' : args.outline, groundShadow: !!args.groundShadow,
+        animations: names, frames: names.length ? args.frames ?? 8 : 1, elevation: args.elevation ?? 30, azimuthOffset: args.azimuthOffset ?? 0,
+        pixelsPerMetre: args.pixelsPerMetre ?? null, pixelArt: args.pixelArt ?? true, colors: args.colors ?? 24, palette,
+        dither: args.dither ?? 0, outline: args.outline === undefined ? '#16171b' : args.outline, outlineStyle: args.outlineStyle ?? 'solid',
+        cleanup: args.cleanup ?? true, maps: args.maps ?? [], groundShadow: !!args.groundShadow,
       });
-      const dir = await exportDir(engine, 'sprites');
-      const base = path.join(dir, safeName(args.filename));
-      await fs.writeFile(`${base}.png`, Buffer.from(out.png, 'base64'));
+      const folder = args.folder ?? 'assets/forge/sprites';
+      const dir = args.project ? await godotDir(args.project, folder) : await exportDir(engine, 'sprites');
+      const name = safeName(args.filename);
+      const base = path.join(dir, name);
+      const files = { color: `${base}.png` };
+      await fs.writeFile(files.color, Buffer.from(out.png, 'base64'));
+      for (const kind of ['normal', 'emission']) {
+        if (!out[kind]) continue;
+        files[kind] = `${base}_${kind}.png`;
+        await fs.writeFile(files[kind], Buffer.from(out[kind], 'base64'));
+      }
       await fs.writeFile(`${base}.json`, JSON.stringify(out.meta, null, 2));
-      return { image: out.png, mime: 'image/png', path: `${base}.png`, layout: `${base}.json`, ...out.meta };
+      if (args.project) {
+        const res = `res://${folder.replace(/\\/g, '/').replace(/^\/|\/$/g, '')}`;
+        files.spriteFrames = `${base}.tres`;
+        await fs.writeFile(files.spriteFrames, spriteFramesTres(out.meta, `${res}/${name}.png`, out.normal ? `${res}/${name}_normal.png` : null));
+      }
+      return { image: out.png, mime: 'image/png', files, ...out.meta };
     },
   });
 
@@ -148,14 +178,37 @@ export function register(registry, { z, engine }) {
   });
 }
 
-async function exportDir(engine, folder) {
+// Godot 4 SpriteFrames resource: one animation per sheet row, frames cut from the sheet
+// with AtlasTextures. With a normal map, frames use a CanvasTexture so 2D lights work.
+function spriteFramesTres(meta, colorPath, normalPath) {
+  const ext = [`[ext_resource type="Texture2D" path="${colorPath}" id="1_color"]`];
+  const subs = [];
+  let atlas = 'ExtResource("1_color")';
+  if (normalPath) {
+    ext.push(`[ext_resource type="Texture2D" path="${normalPath}" id="2_normal"]`);
+    subs.push('[sub_resource type="CanvasTexture" id="CanvasTexture_sheet"]\ndiffuse_texture = ExtResource("1_color")\nnormal_texture = ExtResource("2_normal")');
+    atlas = 'SubResource("CanvasTexture_sheet")';
+  }
+  const anims = meta.rowNames.map((rowName, r) => {
+    const frames = [];
+    for (let c = 0; c < meta.columns; c++) {
+      const id = `AtlasTexture_${r}_${c}`;
+      subs.push(`[sub_resource type="AtlasTexture" id="${id}"]\natlas = ${atlas}\nregion = Rect2(${c * meta.frameSize}, ${r * meta.frameSize}, ${meta.frameSize}, ${meta.frameSize})`);
+      frames.push(`{\n"duration": 1.0,\n"texture": SubResource("${id}")\n}`);
+    }
+    return `{\n"frames": [${frames.join(', ')}],\n"loop": true,\n"name": &"${rowName}",\n"speed": ${(meta.fps ?? 5).toFixed(1)}\n}`;
+  });
+  return `[gd_resource type="SpriteFrames" load_steps=${ext.length + subs.length + 1} format=3]\n\n${ext.join('\n')}\n\n${subs.join('\n\n')}\n\n[resource]\nanimations = [${anims.join(', ')}]\n`;
+}
+
+export async function exportDir(engine, folder) {
   const parts = String(folder).split(/[\\/]+/).filter(Boolean).map(safeName);
   const dir = path.join(engine.paths.exports, ...parts);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
 
-async function godotDir(project, folder) {
+export async function godotDir(project, folder) {
   const root = path.resolve(project);
   try {
     await fs.access(path.join(root, 'project.godot'));

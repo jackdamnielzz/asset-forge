@@ -4,6 +4,9 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { SceneView } from './viewer.js';
 import { LIGHTING_PRESETS, MATERIAL_PRESETS, PATTERNS, STYLES, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS, FONTS } from '/shared/presets.js';
 import { ANIMATION_PRESETS } from '/shared/animations.js';
+import { PALETTES } from '/shared/palettes.js';
+import { imageOp, videoFrames } from './imageops.js';
+import { renderTileset } from './tileset.js';
 
 const DEG = Math.PI / 180;
 const role = new URLSearchParams(location.search).get('role') === 'renderer' ? 'renderer' : 'viewer';
@@ -52,7 +55,14 @@ function connect(onScene) {
     } else if (msg.type === 'request') {
       try {
         view.update(msg.scene);
-        const handlers = { render: (o) => view.renderImage(o), export_glb: (o) => view.exportGlb(o), render_sprites: (o) => view.renderSprites(o) };
+        const handlers = {
+          render: (o) => view.renderImage(o),
+          export_glb: (o) => view.exportGlb(o),
+          render_sprites: (o) => view.renderSprites(o),
+          render_tileset: (o) => renderTileset(o),
+          image_op: (o) => imageOp(o.op, o.file, o.options),
+          video_frames: (o) => videoFrames(o),
+        };
         if (!handlers[msg.kind]) throw new Error(`Unknown request ${msg.kind}`);
         const data = await handlers[msg.kind](msg.opts);
         ws.send(JSON.stringify({ type: 'response', reqId: msg.reqId, ok: true, data }));
@@ -194,6 +204,7 @@ function startWindow() {
   styleSel.onchange = () => run('set_style', { style: styleSel.value });
   document.getElementById('render-btn').onclick = openRenderModal;
   document.getElementById('game-btn').onclick = openGameModal;
+  document.getElementById('ai-btn').onclick = openAiModal;
   document.getElementById('play-btn').onclick = () => toggleAnimation(!state.anim.playing);
   document.getElementById('anim-select').onchange = (e) => { state.anim.name = e.target.value; if (state.anim.playing) toggleAnimation(true); };
   document.getElementById('snap-select').onchange = (e) => {
@@ -333,6 +344,13 @@ function renderLibrary() {
     };
     t.append(solid);
     box.append(t);
+  }
+  const models = document.getElementById('model-library');
+  models.innerHTML = '';
+  const list = Object.values(state.library.models ?? {});
+  if (list.length) {
+    models.append(el('h3', { style: 'margin-top:12px' }, '3D models'), el('div', {}, list.map((m) => el('span', { class: 'chip', title: m.madeBy?.prompt ?? m.name },
+      m.name, el('button', { title: 'Place in scene', onclick: async () => { const r = await run('add_object', { type: 'model', name: m.name, params: { assetId: m.id } }); if (r) window.forgeSelect(r.id); } }, '+')))));
   }
 }
 
@@ -703,24 +721,237 @@ function openRenderModal() {
   go();
 }
 
-// Icons, sprite sheets and Godot export in one window.
-function openGameModal() {
-  const body = el('div', {});
-  const tabs = { Icons: iconsTab, Sprites: spritesTab, Godot: godotTab };
+// A window with tabs; remembers the last tab per window.
+function tabbedModal(title, tabs, key) {
   const bar = el('div', { class: 'tabs' });
   const content = el('div', {});
   const show = (name) => {
     for (const b of bar.children) b.classList.toggle('active', b.textContent === name);
     content.innerHTML = '';
     content.append(tabs[name]());
-    try { localStorage.setItem('forge.gameTab', name); } catch {}
+    try { localStorage.setItem(key, name); } catch {}
   };
   for (const name of Object.keys(tabs)) bar.append(el('button', { onclick: () => show(name) }, name));
-  body.append(bar, content);
-  openModal('Game assets', body);
-  let last = 'Icons';
-  try { last = localStorage.getItem('forge.gameTab') || last; } catch {}
-  show(tabs[last] ? last : 'Icons');
+  openModal(title, el('div', {}, bar, content));
+  let last = Object.keys(tabs)[0];
+  try { last = localStorage.getItem(key) || last; } catch {}
+  show(tabs[last] ? last : Object.keys(tabs)[0]);
+}
+
+// Icons, sprite sheets, tilesets and Godot export in one window.
+function openGameModal() {
+  tabbedModal('Game assets', { Icons: iconsTab, Sprites: spritesTab, Tiles: tilesTab, Godot: godotTab }, 'forge.gameTab');
+}
+
+function godotProject() {
+  try { return localStorage.getItem('forge.godotProject') ?? ''; } catch { return ''; }
+}
+
+const paletteSelect = (value = '') => sel([['', 'automatic'], ...Object.entries(PALETTES).map(([k, p]) => [k, `${k} (${p.colors.length})`])], value);
+const imageSelect = (value) => sel([['', 'none'], ...Object.values(state.library.images).map((i) => [i.id, i.name])], value);
+
+function tilesTab() {
+  const types = Object.keys(PATTERNS).filter((k) => !['solid'].includes(k));
+  const base = sel(types.map((t) => [t]), 'dirt');
+  const overlay = sel(types.map((t) => [t]), 'grass');
+  const size = sel([[8], [16], [24], [32], [48], [64]], 16);
+  const palette = paletteSelect();
+  const edge = el('input', { type: 'checkbox', checked: true });
+  const rough = el('input', { type: 'number', min: 0, max: 1, step: 0.05, value: 0.35 });
+  const name = el('input', { type: 'text', value: 'grass_dirt' });
+  const toGodot = el('input', { type: 'checkbox', checked: !!godotProject() });
+  const out = el('div', {});
+  const go = async () => {
+    out.innerHTML = '<p class="muted">Making tiles…</p>';
+    const args = { filename: name.value || 'tiles', base: { type: base.value }, overlay: { type: overlay.value }, tileSize: Number(size.value), edge: edge.checked, roughness: Number(rough.value), seed: Math.floor(Math.random() * 9999) };
+    if (palette.value) args.palette = palette.value;
+    if (toGodot.checked && godotProject()) args.project = godotProject();
+    const r = await run('make_tileset', args);
+    out.innerHTML = '';
+    if (!r) return;
+    out.append(el('img', { src: `data:image/png;base64,${r.image}`, class: 'pixelated', style: `width:${r.tileSize * 4 * Math.max(2, Math.floor(256 / (r.tileSize * 4)))}px` }),
+      el('p', { class: 'hint' }, `16 tiles of ${r.tileSize}px. ${r.files.tileset ? `Godot TileSet: ${r.files.tileset} (paint with the terrain tool).` : `Saved as ${r.files.atlas}.`}`));
+  };
+  return el('div', {},
+    el('p', { class: 'hint' }, 'A seamless pixel tileset where one ground blends into another, with every corner combination, so maps paint without seams. Press again for a new variation.'),
+    el('div', { class: 'form-grid' }, field('Ground', base), field('Blends into', overlay), field('Tile size', size), field('Palette', palette),
+      field('Wobbly border (0-1)', rough), field('File name', name), el('label', { class: 'check' }, edge, ' Dark rim'),
+      el('label', { class: 'check', title: godotProject() ? godotProject() : 'Set a Godot project in the Godot tab first' }, toGodot, ' Send to Godot project')),
+    el('button', { class: 'primary', onclick: go }, 'Make tileset'), out);
+}
+
+// ---- AI services ----------------------------------------------------------------
+
+function openAiModal() {
+  tabbedModal('AI and picture tools', { Image: aiImageTab, Video: aiVideoTab, '3D model': ai3dTab, 'Picture tools': pictureToolsTab, Services: aiServicesTab }, 'forge.aiTab');
+}
+
+async function aiServices() {
+  return (await run('list_ai_services')) ?? {};
+}
+
+const costNote = () => el('p', { class: 'hint' }, 'These services run on your own account and cost a little money per use. Connect them under Services.');
+
+function serviceSelect(services, cap) {
+  const ids = Object.keys(services).filter((k) => services[k].can.includes(cap));
+  return sel(ids.map((k) => [k, `${services[k].name}${services[k].connected ? '' : ' — not connected'}`]), ids.find((k) => services[k].connected) ?? ids[0]);
+}
+
+function modelInput(services, serviceSel, cap) {
+  const list = el('datalist', { id: `models-${cap}` });
+  const input = el('input', { type: 'text', list: `models-${cap}`, placeholder: 'default' });
+  const fill = () => { list.innerHTML = ''; for (const m of services[serviceSel.value]?.models?.[cap] ?? []) list.append(el('option', { value: m })); input.value = ''; };
+  serviceSel.addEventListener('change', fill);
+  fill();
+  return el('span', {}, input, list);
+}
+
+function asyncTab(build) {
+  const box = el('div', {}, el('p', { class: 'muted' }, 'Loading…'));
+  aiServices().then((services) => { box.innerHTML = ''; box.append(build(services)); });
+  return box;
+}
+
+function aiImageTab() {
+  return asyncTab((services) => {
+    const service = serviceSelect(services, 'image');
+    const model = modelInput(services, service, 'image');
+    const prompt = el('textarea', { placeholder: 'e.g. a mossy stone wall texture, top-down, game art' });
+    const size = el('input', { type: 'text', placeholder: '1024x1024 or 1:1' });
+    const transparent = el('input', { type: 'checkbox' });
+    const ref = imageSelect('');
+    const useRender = el('input', { type: 'checkbox' });
+    const out = el('div', {});
+    const go = async () => {
+      out.innerHTML = '<p class="muted">The AI is painting… this can take up to a minute.</p>';
+      const args = { service: service.value, prompt: prompt.value, transparent: transparent.checked };
+      if (model.firstChild.value) args.model = model.firstChild.value;
+      if (size.value) args.size = size.value;
+      if (ref.value) args.references = [ref.value];
+      if (useRender.checked) args.referenceRender = state.selected ? { target: state.selected } : {};
+      const r = await run('generate_image', args);
+      out.innerHTML = '';
+      if (r) out.append(el('img', { src: `data:${r.mime};base64,${r.image}`, style: 'max-height:340px' }), imageActions(r.assetId));
+    };
+    return el('div', {}, costNote(),
+      el('div', { class: 'form-grid' }, field('Service', service), field('Model', model), field('Size', size), field('Follow this picture', ref),
+        el('label', { class: 'check' }, transparent, ' See-through background'),
+        el('label', { class: 'check', title: 'Renders the selected object (or the scene) and lets the AI repaint it' }, useRender, ' Repaint my 3D render')),
+      field('What should it make?', prompt), el('div', { style: 'height:8px' }),
+      el('button', { class: 'primary', onclick: go }, '✨ Generate'), out);
+  });
+}
+
+// What to do with a picture once it is in the library.
+function imageActions(assetId) {
+  const after = async (p) => { const r = await p; if (r?.id || r?.objectId) window.forgeSelect(r.id ?? r.objectId); if (r) toast('Done'); };
+  return el('div', { class: 'btn-row' },
+    el('button', { onclick: () => after(run('add_object', { type: 'image', params: { assetId } })) }, 'Place flat'),
+    el('button', { onclick: () => after(run('add_object', { type: 'cutout', params: { assetId } })) }, 'Make 3D cut-out'),
+    el('button', { disabled: !state.selected, onclick: () => after(run('set_material', { id: state.selected, texture: assetId })) }, 'Paint on selected'),
+    el('button', { onclick: () => after(run('pixelate_image', { assetId })) }, 'Pixel art version'),
+    el('button', { onclick: () => after(run('make_seamless', { assetId })) }, 'Seamless texture'),
+    el('button', { onclick: () => after(run('remove_background', { assetId })) }, 'Remove background'));
+}
+
+function aiVideoTab() {
+  return asyncTab((services) => {
+    const service = serviceSelect(services, 'video');
+    const model = modelInput(services, service, 'video');
+    const prompt = el('textarea', { placeholder: 'e.g. a flickering campfire, side view, plain dark background' });
+    const ref = imageSelect('');
+    const duration = el('input', { type: 'number', min: 1, max: 20, value: 5 });
+    const aspect = el('input', { type: 'text', value: '1:1' });
+    const out = el('div', {});
+    const go = async () => {
+      out.innerHTML = '<p class="muted">Making the video… this usually takes 1–5 minutes. You can keep working; progress shows in the bottom bar.</p>';
+      const args = { service: service.value, prompt: prompt.value, duration: Number(duration.value), aspect: aspect.value };
+      if (model.firstChild.value) args.model = model.firstChild.value;
+      if (ref.value) args.image = ref.value;
+      const r = await run('generate_video', args);
+      out.innerHTML = '';
+      if (!r) return;
+      const frames = el('input', { type: 'number', min: 2, max: 64, value: 8 });
+      const fsize = el('input', { type: 'number', min: 8, max: 512, value: 64 });
+      const pixel = el('input', { type: 'checkbox', checked: true });
+      const cut = el('input', { type: 'checkbox', checked: true });
+      const sheet = el('div', {});
+      out.append(el('video', { src: r.url, controls: true, loop: true, autoplay: true, muted: true, style: 'max-width:100%;max-height:300px' }),
+        el('h3', {}, 'Turn into a sprite animation'),
+        el('div', { class: 'form-grid' }, field('Frames', frames), field('Frame size', fsize), el('label', { class: 'check' }, pixel, ' Pixel art'), el('label', { class: 'check' }, cut, ' Remove background')),
+        el('button', {
+          onclick: async () => {
+            const s = await run('video_to_sprites', { videoId: r.videoId, filename: `video_${Date.now()}`, frames: Number(frames.value), frameSize: Number(fsize.value), pixelArt: pixel.checked, removeBackground: cut.checked });
+            sheet.innerHTML = '';
+            if (s) sheet.append(el('img', { src: `data:image/png;base64,${s.image}`, class: 'pixelated' }), el('p', { class: 'hint' }, `Saved as ${s.path}`));
+          },
+        }, 'Make sprite sheet'), sheet);
+    };
+    return el('div', {}, costNote(),
+      el('div', { class: 'form-grid' }, field('Service', service), field('Model', model), field('Start from picture', ref), field('Seconds', duration), field('Aspect ratio', aspect)),
+      field('What should happen?', prompt), el('div', { style: 'height:8px' }),
+      el('button', { class: 'primary', onclick: go }, '✨ Make video'), out);
+  });
+}
+
+function ai3dTab() {
+  return asyncTab((services) => {
+    const service = serviceSelect(services, '3d');
+    const model = modelInput(services, service, '3d');
+    const ref = imageSelect('');
+    const prompt = el('textarea', { placeholder: 'Only for text-to-3D models, e.g. a wooden treasure chest with iron bands' });
+    const size = el('input', { type: 'number', min: 0, step: 0.1, value: 1 });
+    const out = el('div', {});
+    const go = async () => {
+      out.innerHTML = '<p class="muted">Building the 3D model… this takes a few minutes.</p>';
+      const args = { service: service.value, size: Number(size.value) };
+      if (model.firstChild.value) args.model = model.firstChild.value;
+      if (ref.value) args.image = ref.value;
+      if (prompt.value) args.prompt = prompt.value;
+      const r = await run('generate_3d', args);
+      out.innerHTML = '';
+      if (r) { out.append(el('p', {}, 'The model is in your scene and in the library (3D models).')); window.forgeSelect(r.objectId); window.forgeFrame(); }
+    };
+    return el('div', {}, costNote(),
+      el('p', { class: 'hint' }, 'Best results: a picture of one object on a plain background (make one in the Image tab, with a see-through background).'),
+      el('div', { class: 'form-grid' }, field('Service', service), field('Model', model), field('From picture', ref), field('Height in scene (m)', size)),
+      field('Or describe it (text-to-3D models)', prompt), el('div', { style: 'height:8px' }),
+      el('button', { class: 'primary', onclick: go }, '✨ Make 3D model'), out);
+  });
+}
+
+function pictureToolsTab() {
+  const pick = imageSelect(Object.keys(state.library.images)[0] ?? '');
+  const size = el('input', { type: 'number', min: 8, max: 512, value: 64 });
+  const colors = el('input', { type: 'number', min: 2, max: 256, value: 16 });
+  const palette = paletteSelect();
+  const out = el('div', {});
+  const show = (r) => { out.innerHTML = ''; if (r) out.append(el('img', { src: `data:image/png;base64,${r.image}`, class: 'pixelated', style: 'max-height:300px' }), imageActions(r.assetId)); };
+  const need = (fn) => async () => { if (!pick.value) return toast('Import or choose a picture first', true); out.innerHTML = '<p class="muted">Working…</p>'; show(await fn()); };
+  return el('div', {},
+    el('p', { class: 'hint' }, 'Free tools that work on pictures in your library (photos, drawings, AI images). Each makes a new picture, the original stays.'),
+    el('div', { class: 'form-grid' }, field('Picture', pick), field('Pixel art size', size), field('Colours', colors), field('Palette', palette)),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'primary', onclick: need(() => run('pixelate_image', { assetId: pick.value, size: Number(size.value), colors: Number(colors.value), ...(palette.value ? { palette: palette.value } : {}), outline: '#16171b' })) }, 'Picture → pixel art'),
+      el('button', { onclick: need(() => run('remove_background', { assetId: pick.value })) }, 'Remove background'),
+      el('button', { onclick: need(() => run('make_seamless', { assetId: pick.value })) }, 'Photo → seamless texture')),
+    out);
+}
+
+function aiServicesTab() {
+  return asyncTab((services) => el('div', {},
+    el('p', { class: 'hint' }, 'Paste an API key to connect a service. Keys are stored only on this computer (workspace/secrets.json) and are never shown again or sent anywhere except to that service.'),
+    Object.entries(services).map(([id, s]) => {
+      const key = el('input', { type: 'password', placeholder: s.connected ? '•••••••• (connected; paste to replace)' : 'API key', autocomplete: 'off' });
+      const url = el('input', { type: 'text', placeholder: 'default address', value: s.customUrl ?? '' });
+      return el('div', { class: 'prop-group' },
+        el('h3', {}, `${s.connected ? '🟢' : '⚪'} ${s.name}`),
+        el('p', { class: 'hint' }, `Can make: ${s.can.join(', ')}. `, el('a', { href: s.signup, target: '_blank', rel: 'noopener' }, 'Get a key')),
+        el('div', { class: 'form-grid' }, field('API key', key), field('Server address (optional)', url)),
+        el('div', { class: 'btn-row' },
+          el('button', { onclick: async () => { if (await run('connect_ai_service', { service: id, ...(key.value ? { key: key.value } : {}), baseUrl: url.value })) { toast('Saved'); openAiModal(); } } }, 'Save'),
+          s.connected ? el('button', { class: 'danger', onclick: async () => { if (await run('connect_ai_service', { service: id, key: '' })) openAiModal(); } }, 'Disconnect') : null));
+    })));
 }
 
 const exportUrl = (file) => `/exports/${file.split(/[\\/]exports[\\/]/)[1].replace(/\\/g, '/')}?t=${Date.now()}`;
@@ -754,40 +985,58 @@ function spritesTab() {
   const o = selectedObj();
   const anims = Object.keys(state.scene.animations ?? {});
   const dirs = sel([[1, '1 (front only)'], [4, '4 directions'], [8, '8 directions']], 8);
-  const size = sel([[32], [48], [64], [96], [128], [256]], 64);
+  const size = sel([[16], [24], [32], [48], [64], [96], [128], [256]], 64);
   const elev = el('input', { type: 'number', min: 0, max: 90, step: 5, value: 30 });
+  const turn = el('input', { type: 'number', step: 45, value: 0 });
+  const ppm = el('input', { type: 'number', min: 0, step: 4, value: 0, title: '0 = fit the object in the frame' });
   const pixel = el('input', { type: 'checkbox', checked: true });
+  const palette = paletteSelect();
   const colors = el('input', { type: 'number', min: 2, max: 256, value: 24 });
-  const useOutline = el('input', { type: 'checkbox', checked: true });
+  const dither = el('input', { type: 'number', min: 0, max: 1, step: 0.1, value: 0 });
+  const outlineStyle = sel([['solid', 'one colour'], ['selout', 'darker shade (selout)'], ['none', 'no outline']], 'selout');
   const outline = el('input', { type: 'color', value: '#16171b' });
-  const anim = sel([['', 'none (still)'], ...anims.map((a) => [a])], anims[0] ?? '');
+  const normal = el('input', { type: 'checkbox' });
+  const glow = el('input', { type: 'checkbox' });
+  const animBoxes = anims.map((a) => el('input', { type: 'checkbox', value: a, checked: a === state.anim.name }));
   const frames = el('input', { type: 'number', min: 1, max: 64, value: 8 });
   const name = el('input', { type: 'text', value: o?.name ?? state.scene.name });
+  const toGodot = el('input', { type: 'checkbox', checked: false });
   const out = el('div', {});
   const go = async () => {
     out.innerHTML = '<p class="muted">Rendering sprite sheet…</p>';
+    const chosen = animBoxes.filter((b) => b.checked).map((b) => b.value);
     const args = {
       filename: name.value || 'sprites', directions: Number(dirs.value), frameSize: Number(size.value), elevation: Number(elev.value),
-      pixelArt: pixel.checked, colors: Number(colors.value), outline: useOutline.checked ? outline.value : null,
+      azimuthOffset: Number(turn.value), pixelArt: pixel.checked, colors: Number(colors.value), dither: Number(dither.value),
+      outlineStyle: outlineStyle.value === 'none' ? 'solid' : outlineStyle.value, outline: outlineStyle.value === 'none' ? null : outline.value,
+      maps: [normal.checked && 'normal', glow.checked && 'emission'].filter(Boolean),
     };
+    if (Number(ppm.value) > 0) args.pixelsPerMetre = Number(ppm.value);
+    if (palette.value) args.palette = palette.value;
     if (o) args.target = o.id;
-    if (anim.value) Object.assign(args, { animation: anim.value, frames: Number(frames.value) });
+    if (chosen.length) Object.assign(args, { animations: chosen, frames: Number(frames.value) });
+    if (toGodot.checked && godotProject()) args.project = godotProject();
     const r = await run('render_sprites', args);
     out.innerHTML = '';
     if (!r) return;
     const src = `data:image/png;base64,${r.image}`;
+    const zoom = Math.max(1, Math.min(4, Math.floor(760 / (r.columns * r.frameSize))));
     out.append(
-      el('img', { src, class: 'pixelated', style: `width:${Math.min(760, r.columns * r.frameSize * 2)}px` }),
-      el('p', { class: 'hint' }, `${r.rows} rows (${r.directions.join(', ')}) × ${r.columns} frames of ${r.frameSize}px${r.fps ? `, ${r.fps} fps` : ''}. Saved as ${r.path} with a .json layout file.`),
+      el('img', { src, class: 'pixelated', style: `width:${r.columns * r.frameSize * zoom}px` }),
+      el('p', { class: 'hint' }, `${r.rows} rows (${r.rowNames.join(', ')}) × ${r.columns} frames of ${r.frameSize}px${r.fps ? `, ${r.fps} fps` : ''}. Files: ${Object.values(r.files).join(', ')}`),
       el('a', { href: src, download: `${args.filename}.png` }, el('button', {}, 'Download PNG')));
   };
   return el('div', {},
-    el('p', { class: 'hint' }, `Turns ${o ? `"${o.name}"` : 'the whole scene'} into a 2D sprite sheet: rows are directions, columns are animation frames. Select an object first to render only that.`),
+    el('p', { class: 'hint' }, `Turns ${o ? `"${o.name}"` : 'the whole scene'} into a 2D sprite sheet: rows are directions (per animation), columns are frames. Select an object first to render only that.`),
     el('div', { class: 'form-grid' },
-      field('Directions', dirs), field('Frame size (pixels)', size), field('Camera height (0 = side, 30 = iso, 60+ = top-down)', elev),
-      field('Animation', anim), field('Frames per direction', frames), field('File name', name),
-      el('label', { class: 'check' }, pixel, ' Pixel art'), field('Colours (pixel art)', colors),
-      el('label', { class: 'check' }, useOutline, ' Outline ', outline)),
+      field('Directions', dirs), field('Frame size (pixels)', size), field('Camera height (0 side, 30 iso, 60+ top-down)', elev),
+      field('Turn camera first (°, 45 = diamond iso)', turn), field('Pixels per metre (0 = fit)', ppm), field('File name', name),
+      el('label', { class: 'check' }, pixel, ' Pixel art'), field('Palette', palette), field('Colours (automatic palette)', colors),
+      field('Dithering (0-1)', dither), field('Outline', outlineStyle), el('label', { class: 'check' }, ' Outline colour ', outline),
+      el('label', { class: 'check', title: 'For Godot 2D lights' }, normal, ' Normal map'), el('label', { class: 'check', title: 'Glowing parts only' }, glow, ' Glow map'),
+      field('Frames per direction', frames),
+      el('label', { class: 'check', title: godotProject() || 'Set a Godot project in the Godot tab first' }, toGodot, ' Send to Godot (+ SpriteFrames)')),
+    anims.length ? el('div', { class: 'prop-group' }, el('h3', {}, 'Animations to include'), el('div', { class: 'btn-row' }, animBoxes.map((b) => el('label', { class: 'inline' }, b, ` ${b.value}`)))) : el('p', { class: 'hint' }, 'No animations yet: the sheet will be one still frame per direction.'),
     el('button', { class: 'primary', onclick: go }, 'Make sprite sheet'), out);
 }
 
