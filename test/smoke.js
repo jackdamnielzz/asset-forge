@@ -61,6 +61,20 @@ try {
   const png = Buffer.from(shot.image, 'base64');
   check(png.readUInt32BE(0) === 0x89504e47 && png.length > 20_000, `render_preview returns a real picture (${Math.round(png.length / 1024)} KB)`);
 
+  const rusty = await call('add_object', { type: 'cylinder', position: [-3, 0.5, 0], material: { preset: 'rusty_metal', wear: 0.5 } });
+  check(rusty.object.material.pattern.type === 'rust' && rusty.object.material.pattern.colors.length === 2, 'pattern presets fill in pattern settings');
+  const tweaked = await call('set_material', { id: rusty.id, pattern: { scale: 0.4 } });
+  check(tweaked.changed[0] === rusty.id && (await call('get_object', { id: rusty.id })).material.pattern.type === 'rust', 'partial pattern update keeps the pattern type');
+  for (const style of ['toon', 'clay', 'lowpoly', 'realistic']) {
+    await call('set_style', { style });
+    const s = await call('render_preview', { width: 256, height: 256 });
+    check(Buffer.from(s.image, 'base64').length > 5_000, `renders in ${style} style`);
+  }
+  await call('set_effects', { ao: false, bloom: false });
+  const plain = await call('render_preview', { width: 256, height: 256 });
+  check(Buffer.from(plain.image, 'base64').length > 5_000, 'renders with effects switched off');
+  await call('set_effects', { ao: true, bloom: true });
+
   const img = await call('import_image', { data: shot.image, name: 'my-render', addToScene: true });
   check(img.assetId && img.width === 512 && img.objectId, 'import_image stores image and places it');
 

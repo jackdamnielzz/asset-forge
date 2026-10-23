@@ -12,8 +12,12 @@ How to make beautiful assets:
 1. Start with get_scene. Use clear_scene or new_project for a fresh start.
 2. Build from several well-proportioned parts; group them with a "group" object (parent) so they move and export together.
 3. Boxes: keep a small bevel (0.01-0.05) - rounded edges catch light and look real.
-4. Use material presets (steel, gold, wood, ceramic, rubber, glass, glow...) and then tune colour/roughness. Avoid pure black/white; vary roughness between parts.
-5. Pick lighting with set_environment (studio for judging, others for mood).
+4. Use material presets, then tune colour/roughness. Avoid pure black/white; vary roughness between parts.
+   Presets with generated surfaces (oak, floor_planks, old_wood, brushed_steel, worn_metal, rusty_metal, cobblestone,
+   brick_wall, floor_tiles, cloth, concrete, hand_painted) look far richer than plain colours. Tune them with
+   set_material pattern {scale (metres per tile), seed, variation, bump, angle 90 for upright wood} and wear (0-1 age).
+5. Pick lighting with set_environment (studio for judging, others for mood). set_style switches the whole look
+   (realistic, toon, lowpoly, clay - clay is great for checking shapes). set_effects controls soft shadows and glow.
 6. ALWAYS check your work with render_preview (try iso and front views) and fix gaps, floating parts and proportions before declaring it done.
 7. Use run_batch to build many parts in one step ($N.id references earlier results).
 8. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;

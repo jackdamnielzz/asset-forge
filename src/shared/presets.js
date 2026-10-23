@@ -14,8 +14,49 @@ export const MATERIAL_PRESETS = {
   gold:          { color: '#ffc45c', metalness: 1, roughness: 0.22 },
   copper:        { color: '#e0805a', metalness: 1, roughness: 0.3 },
   glass:         { color: '#ffffff', metalness: 0, roughness: 0.03, transmission: 1, ior: 1.5, thickness: 0.4 },
-  glow:          { color: '#111111', metalness: 0, roughness: 0.5, emissive: '#39c6ff', emissiveIntensity: 3 },
+  glow:          { color: '#111111', metalness: 0, roughness: 0.5, emissive: '#39c6ff', emissiveIntensity: 8 },
+  // presets with a generated pattern
+  oak:           { color: '#c8955c', metalness: 0, roughness: 0.75, pattern: { type: 'wood', scale: 0.6 } },
+  dark_wood:     { color: '#7a4f2e', metalness: 0, roughness: 0.7, pattern: { type: 'wood', scale: 0.6 } },
+  floor_planks:  { color: '#c08a56', metalness: 0, roughness: 0.7, pattern: { type: 'planks', scale: 1.2 } },
+  old_wood:      { color: '#a98a68', metalness: 0, roughness: 0.85, pattern: { type: 'wood', scale: 0.6 }, wear: 0.7 },
+  brushed_steel: { color: '#c3c8ce', metalness: 1, roughness: 0.45, pattern: { type: 'metal', scale: 0.5 } },
+  worn_metal:    { color: '#a7acb2', metalness: 1, roughness: 0.5, pattern: { type: 'scratched_metal', scale: 0.5 }, wear: 0.4 },
+  rusty_metal:   { color: '#ffffff', metalness: 1, roughness: 1, pattern: { type: 'rust', scale: 0.8 } },
+  cobblestone:   { color: '#9c978e', metalness: 0, roughness: 0.95, pattern: { type: 'stone', scale: 1.2, bump: 1.5 } },
+  brick_wall:    { color: '#ffffff', metalness: 0, roughness: 1, pattern: { type: 'brick', scale: 1.6, bump: 1.4 } },
+  floor_tiles:   { color: '#ffffff', metalness: 0, roughness: 1, pattern: { type: 'tiles', scale: 1.2 } },
+  cloth:         { color: '#7b3b3b', metalness: 0, roughness: 0.95, pattern: { type: 'fabric', scale: 0.3 } },
+  concrete:      { color: '#b4b1ab', metalness: 0, roughness: 0.92, pattern: { type: 'concrete', scale: 1.5 } },
+  hand_painted:  { color: '#d9a15b', metalness: 0, roughness: 0.85, pattern: { type: 'painted', scale: 0.8 } },
 };
+
+// Generated patterns. "tinted" ones are coloured by the material colour (use the lightest tone);
+// "absolute" ones carry their own two colours (pattern.colors = [main, second]).
+export const PATTERNS = {
+  solid:           { kind: 'tinted', description: 'Plain surface with very subtle variation (used for wear on plain materials)' },
+  wood:            { kind: 'tinted', description: 'Wood grain with rings and knots. angle 90 turns the grain for upright parts' },
+  planks:          { kind: 'tinted', description: 'Rows of wooden boards with seams' },
+  metal:           { kind: 'tinted', description: 'Brushed metal streaks' },
+  scratched_metal: { kind: 'tinted', description: 'Metal with many fine scratches' },
+  stone:           { kind: 'tinted', description: 'Irregular stones with dark gaps (cobblestone, rock)' },
+  concrete:        { kind: 'tinted', description: 'Concrete with pores and soft blotches' },
+  fabric:          { kind: 'tinted', description: 'Woven cloth' },
+  painted:         { kind: 'tinted', description: 'Hand-painted look with visible brush strokes and banded tones' },
+  rust:            { kind: 'absolute', description: 'Metal with rust patches. colors = [metal, rust]', colors: ['#9ea3aa', '#8c3d17'] },
+  brick:           { kind: 'absolute', description: 'Brick wall with mortar. colors = [brick, mortar]', colors: ['#8f3a24', '#b8b0a3'] },
+  tiles:           { kind: 'absolute', description: 'Square glossy tiles with grout. colors = [tile, grout]', colors: ['#e2e2dc', '#77736d'] },
+};
+
+export const STYLES = {
+  realistic: 'Physically based materials (default)',
+  toon: 'Cartoon look: flat colour bands and dark outlines',
+  lowpoly: 'Faceted low-poly look with fewer polygons',
+  clay: 'Everything in plain grey clay: great for judging shape and proportions',
+};
+
+export const DEFAULT_EFFECTS = { ao: true, aoStrength: 1, bloom: true, bloomStrength: 0.6, bloomThreshold: 2.5 };
+export const DEFAULT_STYLE_OPTIONS = { outlineWidth: 1, outlineColor: '#1b1c20', toonSteps: 3 };
 
 export const LIGHTING_PRESETS = {
   studio: {

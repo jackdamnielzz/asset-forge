@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { SceneView } from './viewer.js';
-import { LIGHTING_PRESETS, MATERIAL_PRESETS } from '/shared/presets.js';
+import { LIGHTING_PRESETS, MATERIAL_PRESETS, PATTERNS, STYLES, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '/shared/presets.js';
 
 const DEG = Math.PI / 180;
 const role = new URLSearchParams(location.search).get('role') === 'renderer' ? 'renderer' : 'viewer';
@@ -136,6 +136,7 @@ function startWindow() {
     syncSelection();
     document.getElementById('project-name').textContent = scene.name;
     document.getElementById('lighting-select').value = scene.environment.lighting;
+    document.getElementById('style-select').value = scene.environment.style ?? 'realistic';
     renderOutliner();
     renderProps();
   }
@@ -180,6 +181,9 @@ function startWindow() {
   const lightSel = document.getElementById('lighting-select');
   for (const k of Object.keys(LIGHTING_PRESETS)) lightSel.append(new Option(k, k));
   lightSel.onchange = () => run('set_environment', { lighting: lightSel.value });
+  const styleSel = document.getElementById('style-select');
+  for (const k of Object.keys(STYLES)) styleSel.append(new Option(k, k));
+  styleSel.onchange = () => run('set_style', { style: styleSel.value });
   document.getElementById('render-btn').onclick = openRenderModal;
   document.getElementById('export-btn').onclick = exportGlb;
   document.getElementById('project-btn').onclick = openProjectModal;
@@ -393,10 +397,11 @@ function objectPanel(o) {
       row('Glow', el('div', { class: 'color-row' },
         el('input', { type: 'color', value: toHex(m.emissive ?? '#000000'), onchange: (e) => mat({ emissive: e.target.value }) }),
         slider(m.emissiveIntensity ?? 1, 0, 10, 0.1, (v) => live((x) => { x.emissiveIntensity = v; }), (v) => mat({ emissiveIntensity: v })))),
-      row('Texture', texSel),
+      row('Picture', texSel),
       m.texture ? row('Repeat', vecInputN(m.textureRepeat ?? [1, 1], 0.5, (v) => mat({ textureRepeat: v }))) : null,
-      row('Low-poly', el('input', { type: 'checkbox', checked: !!m.flatShading, onchange: (e) => mat({ flatShading: e.target.checked }) })),
+      row('Faceted', el('input', { type: 'checkbox', checked: !!m.flatShading, onchange: (e) => mat({ flatShading: e.target.checked }) })),
     ));
+    if (o.type !== 'image') parts.push(surfacePanel(m, mat));
   }
 
   parts.push(el('div', { class: 'btn-row' },
@@ -405,6 +410,35 @@ function objectPanel(o) {
     el('button', { class: 'danger', onclick: () => run('delete_object', { id }) }, 'Delete'),
   ));
   return el('div', {}, parts);
+}
+
+// Generated pattern + age controls.
+function surfacePanel(m, mat) {
+  const p = m.pattern;
+  const typeSel = el('select', { onchange: (e) => mat({ pattern: e.target.value ? { type: e.target.value } : null }) },
+    el('option', { value: '' }, 'none'),
+    Object.keys(PATTERNS).filter((k) => k !== 'solid').map((k) => el('option', { value: k, selected: p?.type === k }, k.replace('_', ' '))));
+  const rows = [row('Pattern', typeSel)];
+  if (p) {
+    rows.push(
+      el('p', { class: 'hint' }, PATTERNS[p.type]?.description ?? ''),
+      row('Size (m)', el('input', { type: 'number', step: 0.1, min: 0.02, value: p.scale, onchange: (e) => mat({ pattern: { scale: Number(e.target.value) } }) })),
+      row('Variation', slider(p.variation, 0, 1, 0.05, null, (v) => mat({ pattern: { variation: v } }))),
+      row('Relief', slider(p.bump, 0, 4, 0.1, null, (v) => mat({ pattern: { bump: v } }))),
+      row('Variant', el('div', { class: 'color-row' },
+        el('span', { class: 'muted' }, `#${p.seed}`),
+        el('button', { class: 'tiny', title: 'Try another variation', onclick: () => mat({ pattern: { seed: Math.floor(Math.random() * 9999) } }) }, '🎲 new'),
+        el('label', { class: 'inline' }, el('input', { type: 'checkbox', checked: p.angle === 90, onchange: (e) => mat({ pattern: { angle: e.target.checked ? 90 : 0 } }) }), ' turn 90°'))),
+    );
+    if (PATTERNS[p.type]?.kind === 'absolute') {
+      const cols = p.colors ?? PATTERNS[p.type].colors;
+      rows.push(row('Colours', el('div', { class: 'color-row' }, cols.map((c, i) => el('input', {
+        type: 'color', value: toHex(c), onchange: (e) => { const next = [...cols]; next[i] = e.target.value; mat({ pattern: { colors: next } }); },
+      })))));
+    }
+  }
+  rows.push(row('Age', slider(m.wear ?? 0, 0, 1, 0.05, null, (v) => mat({ wear: v }))));
+  return el('div', {}, el('h3', {}, 'Surface'), el('div', { class: 'prop-group' }, rows));
 }
 
 function vecInputN(values, step, onCommit) {
@@ -430,11 +464,42 @@ function environmentPanel() {
         el('button', { class: 'tiny', onclick: () => setEnv({ background: 'transparent' }) }, 'none'))),
       row('Ground', el('input', { type: 'checkbox', checked: env.ground !== false, onchange: (e) => setEnv({ ground: e.target.checked }) })),
     ),
+    stylePanel(env),
     el('h3', {}, 'Connect an AI'),
     el('p', { class: 'big-hint' },
       'Everything you can click here, an AI can do too. In Claude Code, inside the Asset Forge folder, the tool connects automatically. ',
       'Other AIs and scripts can use the HTTP API at ', el('code', {}, `${location.origin}/api/commands`), '.'),
     el('p', { class: 'hint' }, 'Select an object to edit it. Drop images anywhere to import them.'),
+  );
+}
+
+function stylePanel(env) {
+  const style = env.style ?? 'realistic';
+  const so = { ...DEFAULT_STYLE_OPTIONS, ...env.styleOptions };
+  const fx = { ...DEFAULT_EFFECTS, ...env.effects };
+  const setStyle = (patch) => run('set_style', patch);
+  const setFx = (patch) => run('set_effects', patch);
+  return el('div', {},
+    el('h3', {}, 'Style'),
+    el('div', { class: 'prop-group' },
+      row('Look', el('select', { onchange: (e) => setStyle({ style: e.target.value }) },
+        Object.keys(STYLES).map((k) => el('option', { value: k, selected: k === style }, k)))),
+      el('p', { class: 'hint' }, STYLES[style]),
+      style === 'toon' ? [
+        row('Outline', slider(so.outlineWidth, 0, 5, 0.1, null, (v) => setStyle({ outlineWidth: v }))),
+        row('Bands', slider(so.toonSteps, 2, 6, 1, null, (v) => setStyle({ toonSteps: v }))),
+      ] : null,
+    ),
+    el('h3', {}, 'Effects'),
+    el('div', { class: 'prop-group' },
+      row('Soft shadows', el('div', { class: 'color-row' },
+        el('input', { type: 'checkbox', checked: fx.ao, onchange: (e) => setFx({ ao: e.target.checked }) }),
+        slider(fx.aoStrength, 0, 3, 0.1, null, (v) => setFx({ aoStrength: v })))),
+      row('Glow', el('div', { class: 'color-row' },
+        el('input', { type: 'checkbox', checked: fx.bloom, onchange: (e) => setFx({ bloom: e.target.checked }) }),
+        slider(fx.bloomStrength, 0, 3, 0.1, null, (v) => setFx({ bloomStrength: v })))),
+      style === 'toon' ? el('p', { class: 'hint' }, 'Soft shadows are switched off in toon style.') : null,
+    ),
   );
 }
 

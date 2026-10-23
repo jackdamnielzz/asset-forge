@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { CommandRegistry, CommandError } from './registry.js';
 import { registerBuiltins } from './commands/index.js';
+import { DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '../shared/presets.js';
 
 const HISTORY_LIMIT = 100;
 
@@ -14,7 +15,10 @@ export function emptyScene(name = 'untitled') {
     name,
     objects: {},
     order: [],
-    environment: { lighting: 'studio', exposure: 1, background: null, ground: true, groundColor: null },
+    environment: {
+      lighting: 'studio', exposure: 1, background: null, ground: true, groundColor: null,
+      style: 'realistic', styleOptions: { ...DEFAULT_STYLE_OPTIONS }, effects: { ...DEFAULT_EFFECTS },
+    },
     camera: { position: [3.2, 2.4, 4.2], target: [0, 0.5, 0] },
   };
 }

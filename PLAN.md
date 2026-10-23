@@ -75,7 +75,7 @@
 
 ## Roadmap
 
-### Phase 1 — Foundation (first build)
+### Phase 1 — Foundation ✅ done (2026-10-23)
 - Core engine with a command system and scene recipe format
 - Window with 3D view: orbit camera, select, move/rotate/scale
 - Basic shapes: cube, sphere, cylinder, plane; image import as texture
@@ -83,20 +83,39 @@
 - **MCP server + HTTP API from day one**, including `render_preview`
 - Save/open project, export GLB and PNG
 
-### Phase 2 — Beauty
-- Bevels, smoothing, PBR material library, procedural textures
-- More lighting presets, shadows, post-effects (ambient occlusion, bloom)
-- 3D → 2D sprite renderer (directions, pixel-art style)
+### Phase 2 — Beauty ✅ done (2026-10-23)
+- Soft corner shadows (ambient occlusion) and real glow (bloom)
+- Style switch: realistic, toon (with outlines), low-poly, clay
+- Generated materials: wood, planks, brushed/scratched metal, rust, stone, brick, tiles, fabric, concrete, hand-painted
+- "Age" slider: worn edges, grime, scratches, faded colour
 
-### Phase 3 — Generators & library
-- Parametric generators: crates, barrels, rocks, trees, walls, props
-- Asset library browser with thumbnails, tags, variants
-- Batch: "make 10 variations"
+### Phase 3 — Shapes & generators
+- Repeat (row / circle) and mirror
+- 3D text
+- Spin tool (lathe): vases, bottles, chess pieces, columns
+- Picture → 3D (extrude a silhouette or logo)
+- Cut and combine shapes (booleans)
+- Generator library: barrel, chest, rock, tree, crystal, potion bottle, sword, lamp post, fence, coin
 
-### Phase 4 — Power features
-- Shape deformation / simple sculpting, simple animations
-- AI texture-generation plugins, plugin system for third parties
-- Desktop installer, documentation for other people and other AIs
+### Phase 4 — Made for our games
+- Icon maker (consistent inventory icons, in batches)
+- 3D → pixel-art sprites from 4/8 directions, sprite sheets
+- Godot export (straight into a project, with collision shapes)
+- Simple animations (spin, bob, open lid) → animated sprite sheets / animated GLB
+- Level building kits (snapping wall/floor/corner pieces)
+
+### Phase 5 — AI superpowers
+- Recipes: every asset remembers how it was made and can be re-made with changes
+- Variations grid ("make 12 versions")
+- Quality check (floating parts, overlaps, size, polygon count)
+- House style (shared palette, materials and lighting for one game)
+- AI texture generation (e.g. PixelLab) and photo → seamless texture
+
+### Phase 6 — Comfort & sharing
+- Size reference (1.8 m person)
+- Asset library with thumbnails, tags and search
+- Real Windows program with its own icon
+- Online access with a password for friends and remote AIs
 
 ## Example: what using it with Claude Code looks like
 

@@ -3,7 +3,7 @@
 Our own asset-creation tool, in the spirit of Blender, built so that **AI models can drive
 it completely**, and people can too. See [PLAN.md](PLAN.md) for the vision and roadmap.
 
-**Status:** Phase 1 (Foundation) is done.
+**Status:** Phase 1 (Foundation) and Phase 2 (Beauty) are done.
 
 ## Starting it
 
@@ -24,6 +24,17 @@ The window lives at <http://127.0.0.1:7777>. Everything is saved automatically.
 - Export `.glb` 3D models (open in Godot, Unity, Unreal, Blender)
 - Projects that save after every change
 - Example plugin: `make_crate`, a wooden crate generator
+
+## What's in Phase 2
+
+- Soft corner shadows (ambient occlusion) and real glow (bloom), switchable with `set_effects`
+- Styles for the whole scene with `set_style`: realistic, toon (with outlines), low-poly, clay
+- Generated materials, made by code and seamless: wood, planks, brushed and scratched metal,
+  rust, stone, brick, tiles, fabric, concrete, hand-painted. They are sized in real metres,
+  so they never stretch, and they export into the GLB as normal textures.
+- "Age" (`wear` 0–1): grime, scratches, faded colour and darker worn edges on rounded boxes
+- 13 new material presets that use these (oak, old_wood, rusty_metal, brick_wall, cobblestone…)
+- Try it: `node src/cli/forge.js run examples/showcase.json`
 
 ## How AIs control it
 

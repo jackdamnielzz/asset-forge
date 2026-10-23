@@ -1,4 +1,4 @@
-import { LIGHTING_PRESETS, MATERIAL_PRESETS } from '../../shared/presets.js';
+import { LIGHTING_PRESETS, MATERIAL_PRESETS, PATTERNS, STYLES, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '../../shared/presets.js';
 import { CommandError } from '../registry.js';
 import { emptyScene } from '../engine.js';
 import { vec3, color } from './common.js';
@@ -43,6 +43,53 @@ export function register(registry, { z, engine }) {
     handler(args) {
       for (const [k, v] of Object.entries(args)) if (v !== undefined) engine.scene.environment[k] = v;
       return engine.scene.environment;
+    },
+  });
+
+  registry.define({
+    name: 'set_style',
+    title: 'Set style',
+    category: 'scene',
+    mutates: true,
+    description:
+      'Switch the overall look of the whole scene without changing the objects. Styles: ' +
+      Object.entries(STYLES).map(([k, v]) => `${k} (${v})`).join('; ') + '. ' +
+      'Tip: "clay" is useful to judge shapes; switch back to "realistic" afterwards.',
+    input: z.object({
+      style: z.enum(Object.keys(STYLES)).optional(),
+      outlineWidth: z.number().min(0).max(5).optional().describe('Toon style: outline thickness, 0 = none'),
+      outlineColor: color.optional().describe('Toon style: outline colour'),
+      toonSteps: z.number().int().min(2).max(6).optional().describe('Toon style: number of light/shadow bands'),
+    }),
+    handler({ style, ...opts }) {
+      const env = engine.scene.environment;
+      if (style) env.style = style;
+      env.styleOptions = { ...DEFAULT_STYLE_OPTIONS, ...env.styleOptions };
+      for (const [k, v] of Object.entries(opts)) if (v !== undefined) env.styleOptions[k] = v;
+      return { style: env.style, ...env.styleOptions };
+    },
+  });
+
+  registry.define({
+    name: 'set_effects',
+    title: 'Set picture effects',
+    category: 'scene',
+    mutates: true,
+    description:
+      'Picture effects. ao = soft contact shadows in corners and where objects touch (makes things look grounded). ' +
+      'bloom = soft glow around bright and glowing (emissive) parts. Both are on by default.',
+    input: z.object({
+      ao: z.boolean().optional(),
+      aoStrength: z.number().min(0).max(3).optional(),
+      bloom: z.boolean().optional(),
+      bloomStrength: z.number().min(0).max(3).optional(),
+      bloomThreshold: z.number().min(0).max(5).optional().describe('How bright something must be before it glows (default 2.5 = only glowing parts; lower = brightly lit surfaces glow too)'),
+    }),
+    handler(args) {
+      const env = engine.scene.environment;
+      env.effects = { ...DEFAULT_EFFECTS, ...env.effects };
+      for (const [k, v] of Object.entries(args)) if (v !== undefined) env.effects[k] = v;
+      return env.effects;
     },
   });
 
@@ -137,9 +184,11 @@ export function register(registry, { z, engine }) {
     name: 'list_presets',
     title: 'List presets',
     category: 'help',
-    description: 'List material and lighting presets with their values.',
+    description: 'List material presets, generated patterns, styles and lighting presets.',
     handler: () => ({
       materials: MATERIAL_PRESETS,
+      patterns: Object.fromEntries(Object.entries(PATTERNS).map(([k, v]) => [k, v.description])),
+      styles: STYLES,
       lighting: Object.fromEntries(Object.entries(LIGHTING_PRESETS).map(([k, v]) => [k, v.description])),
     }),
   });

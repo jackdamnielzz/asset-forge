@@ -15,21 +15,28 @@ export default function register({ registry, z, engine }) {
     input: z.object({
       size: z.number().min(0.2).max(10).optional().describe('Edge length in metres (default 1)'),
       position: z.array(z.number()).length(3).optional(),
-      woodColor: z.string().optional().describe('Base wood colour (default warm pine)'),
+      woodColor: z.string().optional().describe('Lightest wood tone as hex, e.g. "#c8955c" (default warm oak)'),
       metalCorners: z.boolean().optional(),
       braces: z.boolean().optional().describe('Diagonal braces on front and back (default true)'),
       seed: z.number().int().optional(),
+      wear: z.number().min(0).max(1).optional().describe('Age: 0 = new, 1 = very old and dirty'),
       name: z.string().optional(),
     }),
     async handler(args, ctx) {
       const s = args.size ?? 1;
       const t = s * 0.12; // beam thickness
-      const wood = args.woodColor ?? '#b07a45';
+      const wood = args.woodColor ?? '#c8955c';
       const rand = mulberry32(args.seed ?? 1);
       const tone = (amt) => shade(wood, (rand() - 0.5) * amt);
       const meta = ctx.meta;
       const add = (a) => engine.execute('add_object', a, meta);
-      const woodMat = (amt = 0.18) => ({ preset: 'wood', color: tone(amt), roughness: 0.7 + rand() * 0.15 });
+      const wear = args.wear ?? 0;
+      const seed = args.seed ?? 1;
+      // Upright parts get vertical grain (angle 90); a few seeds keep the parts from looking identical.
+      const woodMat = (angle = 0, amt = 0.18) => ({
+        preset: 'oak', color: tone(amt), roughness: 0.7 + rand() * 0.15, wear,
+        pattern: { type: 'wood', scale: s * 0.7, angle, seed: seed * 3 + Math.floor(rand() * 3) },
+      });
 
       let groupId;
       await engine.batch(async () => {
@@ -39,12 +46,15 @@ export default function register({ registry, z, engine }) {
           add({ type: 'box', name, parent: groupId, position, rotation, params: { width: size[0], height: size[1], depth: size[2], bevel }, material });
 
         // recessed panels
-        await box('panels', [s - t * 0.9, s - t * 0.9, s - t * 0.9], [0, s / 2, 0], { preset: 'wood', color: shade(wood, -0.18), roughness: 0.85 }, [0, 0, 0], t * 0.05);
+        await box('panels', [s - t * 0.9, s - t * 0.9, s - t * 0.9], [0, s / 2, 0], {
+          preset: 'floor_planks', color: shade(wood, -0.15), roughness: 0.85, wear,
+          pattern: { scale: s * 0.9, seed },
+        }, [0, 0, 0], t * 0.05);
 
         // corner posts
         const h = s / 2 - t / 2;
         for (const [x, z] of [[-h, -h], [h, -h], [-h, h], [h, h]]) {
-          await box('post', [t, s, t], [x, s / 2, z], woodMat());
+          await box('post', [t, s, t], [x, s / 2, z], woodMat(90));
         }
         // top and bottom beams
         for (const y of [t / 2, s - t / 2]) {
@@ -62,7 +72,9 @@ export default function register({ registry, z, engine }) {
         if (args.metalCorners) {
           const c = s / 2 - t * 0.5;
           for (const x of [-c, c]) for (const y of [t * 0.5, s - t * 0.5]) for (const z of [-c, c]) {
-            await box('corner', [t * 1.18, t * 1.18, t * 1.18], [x, y, z], { preset: 'brushed_metal', color: '#7d838b', roughness: 0.45 }, [0, 0, 0], t * 0.15);
+            await box('corner', [t * 1.18, t * 1.18, t * 1.18], [x, y, z], {
+              preset: 'worn_metal', color: '#8a9097', wear: Math.max(0.2, wear), pattern: { scale: s * 0.5 },
+            }, [0, 0, 0], t * 0.15);
           }
         }
       });

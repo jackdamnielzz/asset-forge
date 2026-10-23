@@ -13,6 +13,10 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
 - Shared constants live in `src/shared/presets.js` (imported by both Node and browser, no imports allowed there).
 - Plain modern JavaScript (ES modules), no build step. three.js is served from node_modules via an import map.
 - Command inputs use zod; descriptions are read by AIs, so write them as instructions.
+- Generated materials live in `web/js/patterns.js` (seamless noise, 512px canvases, cached per settings);
+  picture effects in `web/js/effects.js`. Effects tone-map the whole frame, so the background colour is
+  compensated there; keep that in mind when touching backgrounds.
+- Patterns need metre-based UVs, built in `metricUVs()` in viewer.js; geometry keys must include anything that changes UVs.
 
 ## Making assets with the MCP tools
 The `asset-forge` MCP server is configured in `.mcp.json`. Build with several parts in a group,

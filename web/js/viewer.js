@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { LIGHTING_PRESETS } from '/shared/presets.js';
+import { LIGHTING_PRESETS, PATTERNS, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '/shared/presets.js';
+import { createComposer, tuneComposer, disposeComposer, compensateBackground } from './effects.js';
+import { generatePattern } from './patterns.js';
 
 const DEG = Math.PI / 180;
 
@@ -42,11 +44,18 @@ export class SceneView {
     this.pmrem = new THREE.PMREMGenerator(this.renderer);
     this.envCache = new Map();
     this.textureCache = new Map();
+    this.patternCache = new Map();
+    this.gradientCache = new Map();
     this.pendingLoads = new Set();
-    this.nodes = new Map(); // id -> { obj, geoKey, matKey, parent }
+    this.nodes = new Map(); // id -> { obj, geoKey, matKey, outline }
     this.data = null;
     this.library = { images: {} };
     this.envKey = null;
+    this.sceneRadius = 1;
+    this.composer = null;
+    this.background = null;
+
+    this.outlineMaterial = makeOutlineMaterial();
 
     this.ground = new THREE.Mesh(new THREE.CircleGeometry(30, 64), new THREE.ShadowMaterial({ opacity: 0.32 }));
     this.ground.rotation.x = -Math.PI / 2;
@@ -67,10 +76,31 @@ export class SceneView {
     this.library = library;
   }
 
+  get env() {
+    return this.data?.environment ?? {};
+  }
+
+  get style() {
+    return this.env.style ?? 'realistic';
+  }
+
+  get styleOptions() {
+    return { ...DEFAULT_STYLE_OPTIONS, ...this.env.styleOptions };
+  }
+
+  get effects() {
+    const fx = { ...DEFAULT_EFFECTS, ...this.env.effects };
+    // Outlines confuse the corner-shadow effect, so toon style draws without it.
+    if (this.style === 'toon') fx.ao = false;
+    return fx;
+  }
+
   // ---- scene sync -----------------------------------------------------------
 
   update(data) {
     this.data = data;
+    const style = this.style;
+    const styleKey = style + JSON.stringify(this.styleOptions);
     const seen = new Set();
     for (const id of data.order) {
       const o = data.objects[id];
@@ -80,27 +110,36 @@ export class SceneView {
       const isGroup = o.type === 'group';
       if (!node || (node.obj.isGroup !== isGroup)) {
         if (node) node.obj.removeFromParent();
-        node = { obj: isGroup ? new THREE.Group() : new THREE.Mesh(), geoKey: null, matKey: null };
+        node = { obj: isGroup ? new THREE.Group() : new THREE.Mesh(), geoKey: null, matKey: null, outline: null };
         node.obj.userData.forgeId = id;
         this.nodes.set(id, node);
       }
       const obj = node.obj;
       obj.name = o.name;
       if (!isGroup) {
-        const geoKey = o.type + JSON.stringify(o.params);
+        const m = o.material;
+        const surface = hasSurface(o);
+        const geoOpts = {
+          lowpoly: style === 'lowpoly',
+          uvScale: surface ? (m.pattern?.scale ?? 1) : 0,
+          objectScale: o.scale,
+          edgeWear: o.type === 'box' && m.wear > 0 ? m.wear : 0,
+        };
+        const geoKey = JSON.stringify([o.type, o.params, geoOpts.lowpoly, geoOpts.uvScale, geoOpts.uvScale ? o.scale : 0, geoOpts.edgeWear]);
         if (geoKey !== node.geoKey) {
           obj.geometry?.dispose();
-          obj.geometry = buildGeometry(o.type, o.params);
+          obj.geometry = buildGeometry(o.type, o.params, geoOpts);
           node.geoKey = geoKey;
         }
-        const matKey = JSON.stringify(o.material) + o.type + (o.material.texture ? this.library.images[o.material.texture]?.file : '');
+        const matKey = JSON.stringify(m) + o.type + styleKey + (m.texture ? this.library.images[m.texture]?.file : '');
         if (matKey !== node.matKey) {
           obj.material?.dispose?.();
-          obj.material = this.buildMaterial(o);
+          obj.material = this.buildMaterial(o, !!obj.geometry.attributes.color);
           node.matKey = matKey;
         }
         obj.castShadow = true;
         obj.receiveShadow = true;
+        this.syncOutline(node, o);
       }
       if (!node.locked) {
         obj.position.fromArray(o.position);
@@ -126,34 +165,114 @@ export class SceneView {
     this.applyEnvironment(data.environment);
   }
 
-  buildMaterial(o) {
+  // Dark "shell" around each object for the toon style.
+  syncOutline(node, o) {
+    const want = this.style === 'toon' && this.styleOptions.outlineWidth > 0 && o.type !== 'image' && o.type !== 'plane';
+    if (!want) {
+      if (node.outline) { node.outline.removeFromParent(); node.outline = null; }
+      return;
+    }
+    if (!node.outline) {
+      node.outline = new THREE.Mesh(node.obj.geometry, this.outlineMaterial);
+      node.outline.userData.isOutline = true;
+      node.outline.raycast = () => {};
+      node.obj.add(node.outline);
+    }
+    node.outline.geometry = node.obj.geometry;
+  }
+
+  buildMaterial(o, vertexColors) {
     const m = o.material;
-    const mat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color(m.color),
-      metalness: m.metalness,
-      roughness: m.roughness,
-      emissive: new THREE.Color(m.emissive ?? '#000000'),
-      emissiveIntensity: m.emissiveIntensity ?? 1,
-      transmission: m.transmission ?? 0,
-      ior: m.ior ?? 1.5,
-      thickness: m.thickness ?? 0,
-      clearcoat: m.clearcoat ?? 0,
-      clearcoatRoughness: 0.15,
-      flatShading: !!m.flatShading,
-      side: m.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
-    });
+    const style = this.style;
+    const side = m.doubleSided ? THREE.DoubleSide : THREE.FrontSide;
+
+    if (style === 'clay') {
+      return new THREE.MeshStandardMaterial({ color: 0xd2cdc6, roughness: 0.78, metalness: 0, side });
+    }
+
+    const surface = hasSurface(o) ? this.patternTextures(m) : null;
+    const absolute = surface && PATTERNS[m.pattern?.type]?.kind === 'absolute';
+    let map = surface?.map ?? null;
+    if (m.texture) {
+      const asset = this.library.images[m.texture];
+      if (asset) map = this.loadTexture(asset, m.textureRepeat ?? [1, 1]);
+    }
+
+    let mat;
+    if (style === 'toon') {
+      mat = new THREE.MeshToonMaterial({
+        color: new THREE.Color(m.color),
+        gradientMap: this.gradientMap(this.styleOptions.toonSteps),
+        emissive: new THREE.Color(m.emissive ?? '#000000'),
+        emissiveIntensity: m.emissiveIntensity ?? 1,
+        side,
+      });
+      if (map) mat.map = map;
+    } else {
+      mat = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(m.color),
+        metalness: absolute ? 1 : m.metalness,
+        roughness: absolute ? 1 : m.roughness,
+        emissive: new THREE.Color(m.emissive ?? '#000000'),
+        emissiveIntensity: m.emissiveIntensity ?? 1,
+        transmission: m.transmission ?? 0,
+        ior: m.ior ?? 1.5,
+        thickness: m.thickness ?? 0,
+        clearcoat: m.clearcoat ?? 0,
+        clearcoatRoughness: 0.15,
+        flatShading: !!m.flatShading || style === 'lowpoly',
+        side,
+      });
+      if (map) mat.map = map;
+      if (surface) {
+        mat.roughnessMap = surface.orm;
+        mat.metalnessMap = surface.orm;
+        mat.normalMap = surface.normal;
+      }
+    }
+    if (vertexColors) mat.vertexColors = true;
     if (m.opacity < 1) {
       mat.transparent = true;
       mat.opacity = m.opacity;
     }
-    if (m.texture) {
-      const asset = this.library.images[m.texture];
-      if (asset) {
-        mat.map = this.loadTexture(asset, m.textureRepeat ?? [1, 1]);
-        if (o.type === 'image') mat.alphaTest = 0.5;
-      }
-    }
+    if (o.type === 'image' && map) mat.alphaTest = 0.5;
     return mat;
+  }
+
+  patternTextures(m) {
+    const p = m.pattern ?? { type: 'solid', seed: 1 };
+    const absolute = PATTERNS[p.type]?.kind === 'absolute';
+    const spec = {
+      type: p.type, seed: p.seed ?? 1, variation: p.variation ?? 0.5, bump: p.bump ?? 1, angle: p.angle ?? 0,
+      colors: absolute ? p.colors : null, wear: Math.round((m.wear ?? 0) * 20) / 20,
+    };
+    const key = JSON.stringify(spec);
+    if (this.patternCache.has(key)) return this.patternCache.get(key);
+    const out = generatePattern(spec, 512);
+    const tex = (canvas, srgb) => {
+      const t = new THREE.CanvasTexture(canvas);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    };
+    const result = { map: tex(out.color, true), orm: tex(out.orm, false), normal: tex(out.normal, false) };
+    this.patternCache.set(key, result);
+    return result;
+  }
+
+  gradientMap(steps) {
+    if (this.gradientCache.has(steps)) return this.gradientCache.get(steps);
+    const data = new Uint8Array(steps * 4);
+    for (let i = 0; i < steps; i++) {
+      const v = Math.round((0.25 + 0.75 * (i / (steps - 1))) * 255);
+      data.set([v, v, v, 255], i * 4);
+    }
+    const tex = new THREE.DataTexture(data, steps, 1);
+    tex.minFilter = tex.magFilter = THREE.NearestFilter;
+    tex.needsUpdate = true;
+    this.gradientCache.set(steps, tex);
+    return tex;
   }
 
   loadTexture(asset, repeat) {
@@ -187,7 +306,6 @@ export class SceneView {
     this.scene.environment = this.envTexture(env.lighting, preset);
     this.scene.environmentIntensity = preset.envIntensity;
     this.renderer.toneMappingExposure = (env.exposure ?? 1) * preset.exposure;
-    this.setBackground(env.background ?? preset.background);
     this.setGround(env.ground !== false, env.groundColor);
 
     const key = env.lighting;
@@ -208,14 +326,22 @@ export class SceneView {
       }
     }
     this.fitShadows();
+    this.setBackground(env.background ?? preset.background);
   }
 
+  // Remember the wanted background; the actual colour is set right before drawing
+  // because it depends on whether picture effects are used.
   setBackground(bg) {
+    this.background = bg;
+  }
+
+  prepareBackground(useEffects) {
+    const bg = this.background;
     if (!bg || bg === 'transparent') {
       this.scene.background = null;
       this.renderer.setClearColor(0x000000, 0);
     } else {
-      this.scene.background = new THREE.Color(bg);
+      this.scene.background = useEffects ? compensateBackground(bg, this.renderer.toneMappingExposure) : new THREE.Color(bg);
     }
   }
 
@@ -236,9 +362,10 @@ export class SceneView {
 
   // Size each shadow camera to the content so shadows stay sharp.
   fitShadows() {
-    const box = new THREE.Box3().setFromObject(this.content);
+    const box = contentBox(this.content);
     const center = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
-    const radius = box.isEmpty() ? 2 : Math.max(1, box.getBoundingSphere(new THREE.Sphere()).radius * 1.6);
+    this.sceneRadius = box.isEmpty() ? 1 : Math.max(0.2, box.getBoundingSphere(new THREE.Sphere()).radius);
+    const radius = Math.max(1, this.sceneRadius * 1.6);
     for (const light of this.lights.children) {
       if (!light.isDirectionalLight) continue;
       const dir = light.position.clone().normalize();
@@ -253,6 +380,9 @@ export class SceneView {
         cam.updateProjectionMatrix();
       }
     }
+    const o = this.styleOptions;
+    this.outlineMaterial.userData.width.value = this.sceneRadius * 0.006 * o.outlineWidth;
+    this.outlineMaterial.color.set(o.outlineColor);
   }
 
   envTexture(name, preset) {
@@ -273,13 +403,34 @@ export class SceneView {
     this.camera.updateProjectionMatrix();
   }
 
+  usesEffects(fx = this.effects, transparent = false) {
+    return fx.ao || (fx.bloom && !transparent);
+  }
+
   draw(camera = this.camera) {
-    this.renderer.render(this.scene, camera);
+    const fx = this.effects;
+    const use = this.usesEffects(fx);
+    this.prepareBackground(use);
+    if (!use) {
+      disposeComposer(this.composer);
+      this.composer = null;
+      this.renderer.render(this.scene, camera);
+      return;
+    }
+    const size = this.renderer.getSize(new THREE.Vector2());
+    const key = JSON.stringify([fx.ao, fx.bloom, size.x, size.y, this.renderer.getPixelRatio(), camera.uuid]);
+    if (this.composer?.key !== key) {
+      disposeComposer(this.composer);
+      this.composer = createComposer(this.renderer, this.scene, camera, size.x, size.y, fx, this.sceneRadius);
+      this.composer.key = key;
+    }
+    tuneComposer(this.composer, fx, this.sceneRadius);
+    this.composer.composer.render();
   }
 
   frameCamera(camera, view, targetId) {
     const target = targetId ? this.nodes.get(targetId)?.obj : this.content;
-    const box = new THREE.Box3().setFromObject(target ?? this.content);
+    const box = contentBox(target ?? this.content);
     if (box.isEmpty()) box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const dir = new THREE.Vector3().fromArray(VIEW_DIRS[view] ?? VIEW_DIRS.iso).normalize();
@@ -313,10 +464,21 @@ export class SceneView {
     this.helpers.visible = false;
     if (background !== undefined) this.setBackground(background);
     if (ground !== undefined) this.ground.visible = ground;
+    const transparent = this.background === 'transparent';
 
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(width * ss, height * ss, false);
-    this.renderer.render(this.scene, cam);
+    const fx = { ...this.effects };
+    if (transparent) fx.bloom = false; // glow cannot be stored in see-through pixels
+    const use = this.usesEffects(fx, transparent);
+    this.prepareBackground(use);
+    if (use) {
+      const c = createComposer(this.renderer, this.scene, cam, width * ss, height * ss, fx, this.sceneRadius);
+      c.composer.render();
+      disposeComposer(c);
+    } else {
+      this.renderer.render(this.scene, cam);
+    }
 
     const out = document.createElement('canvas');
     out.width = width;
@@ -337,9 +499,15 @@ export class SceneView {
   async exportGlb({ target }) {
     await this.whenReady();
     const root = target ? this.nodes.get(target)?.obj : this.content;
-    const exporter = new GLTFExporter();
-    const result = await exporter.parseAsync(root, { binary: true, onlyVisible: true });
-    return { glb: bufferToBase64(result) };
+    const outlines = [];
+    root.traverse((o) => { if (o.userData.isOutline && o.visible) { o.visible = false; outlines.push(o); } });
+    try {
+      const exporter = new GLTFExporter();
+      const result = await exporter.parseAsync(root, { binary: true, onlyVisible: true });
+      return { glb: bufferToBase64(result) };
+    } finally {
+      for (const o of outlines) o.visible = true;
+    }
   }
 
   objectById(id) {
@@ -347,22 +515,101 @@ export class SceneView {
   }
 }
 
-export function buildGeometry(type, p) {
+// A material needs generated textures when it has a pattern or shows wear.
+function hasSurface(o) {
+  return o.type !== 'image' && !!o.material && (!!o.material.pattern || o.material.wear > 0);
+}
+
+// Bounding box of the real objects only (ignores outline shells).
+function contentBox(root) {
+  const box = new THREE.Box3();
+  root.updateWorldMatrix(true, true);
+  root.traverseVisible((o) => {
+    if (!o.isMesh || o.userData.isOutline) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+  });
+  return box;
+}
+
+export function buildGeometry(type, p, { lowpoly = false, uvScale = 0, objectScale = [1, 1, 1], edgeWear = 0 } = {}) {
+  const seg = (n, min) => (lowpoly ? Math.min(n, min) : n);
+  let g;
   switch (type) {
     case 'box': {
       const r = Math.min(p.bevel, Math.min(p.width, p.height, p.depth) / 2 - 1e-4);
-      return r > 0
-        ? new RoundedBoxGeometry(p.width, p.height, p.depth, Math.max(1, Math.round(p.bevelSegments)), r)
+      g = r > 0
+        ? new RoundedBoxGeometry(p.width, p.height, p.depth, lowpoly ? 1 : Math.max(1, Math.round(p.bevelSegments)), r)
         : new THREE.BoxGeometry(p.width, p.height, p.depth);
+      break;
     }
-    case 'sphere': return new THREE.SphereGeometry(p.radius, p.segments, Math.max(4, Math.round(p.segments / 2)));
-    case 'cylinder': return new THREE.CylinderGeometry(p.radiusTop, p.radiusBottom, p.height, p.segments);
-    case 'cone': return new THREE.ConeGeometry(p.radius, p.height, p.segments);
-    case 'torus': return new THREE.TorusGeometry(p.radius, p.tube, Math.max(8, Math.round(p.segments / 2)), p.segments * 2);
-    case 'capsule': return new THREE.CapsuleGeometry(p.radius, p.length, 8, p.segments);
-    case 'plane': case 'image': return new THREE.PlaneGeometry(p.width, p.height);
-    default: return new THREE.BoxGeometry(1, 1, 1);
+    case 'sphere': g = new THREE.SphereGeometry(p.radius, seg(p.segments, 12), seg(Math.max(4, Math.round(p.segments / 2)), 8)); break;
+    case 'cylinder': g = new THREE.CylinderGeometry(p.radiusTop, p.radiusBottom, p.height, seg(p.segments, 10)); break;
+    case 'cone': g = new THREE.ConeGeometry(p.radius, p.height, seg(p.segments, 10)); break;
+    case 'torus': g = new THREE.TorusGeometry(p.radius, p.tube, seg(Math.max(8, Math.round(p.segments / 2)), 6), seg(p.segments * 2, 14)); break;
+    case 'capsule': g = new THREE.CapsuleGeometry(p.radius, p.length, lowpoly ? 2 : 8, seg(p.segments, 8)); break;
+    case 'plane': case 'image': g = new THREE.PlaneGeometry(p.width, p.height); break;
+    default: g = new THREE.BoxGeometry(1, 1, 1);
   }
+  if (uvScale) metricUVs(g, type, p, uvScale, objectScale);
+  if (edgeWear) edgeWearColors(g, edgeWear);
+  return g;
+}
+
+// Give textures a real-world size (metres per tile) so patterns are never stretched.
+function metricUVs(g, type, p, scale, s) {
+  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+  const avg = (s[0] + s[1] + s[2]) / 3;
+  const k = 1 / scale;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i) * s[0], y = pos.getY(i) * s[1], z = pos.getZ(i) * s[2];
+    const nx = Math.abs(nor.getX(i)), ny = Math.abs(nor.getY(i)), nz = Math.abs(nor.getZ(i));
+    let u, v;
+    switch (type) {
+      case 'box':
+        if (nx >= ny && nx >= nz) { u = z; v = y; } else if (ny >= nz) { u = x; v = z; } else { u = x; v = y; }
+        break;
+      case 'plane': u = x; v = y; break;
+      case 'cylinder': case 'cone': {
+        const r = type === 'cone' ? p.radius / 2 : (p.radiusTop + p.radiusBottom) / 2;
+        if (ny > 0.9) { u = x; v = z; } else { u = uv.getX(i) * Math.PI * 2 * r * avg; v = y; }
+        break;
+      }
+      case 'sphere': u = uv.getX(i) * Math.PI * 2 * p.radius * avg; v = uv.getY(i) * Math.PI * p.radius * avg; break;
+      case 'torus': u = uv.getX(i) * Math.PI * 2 * p.radius * avg; v = uv.getY(i) * Math.PI * 2 * p.tube * avg; break;
+      case 'capsule': u = uv.getX(i) * Math.PI * 2 * p.radius * avg; v = uv.getY(i) * (p.length + Math.PI * p.radius) * avg; break;
+      default: u = uv.getX(i); v = uv.getY(i);
+    }
+    uv.setXY(i, u * k, v * k);
+  }
+  uv.needsUpdate = true;
+}
+
+// Darken the rounded edges of a box a little: they are where wear shows first.
+function edgeWearColors(g, wear) {
+  const nor = g.attributes.normal;
+  const colors = new Float32Array(nor.count * 3);
+  for (let i = 0; i < nor.count; i++) {
+    const e = 1 - Math.max(Math.abs(nor.getX(i)), Math.abs(nor.getY(i)), Math.abs(nor.getZ(i)));
+    const t = Math.min(1, Math.max(0, (e - 0.03) / 0.17));
+    const c = 1 - wear * 0.5 * t * t * (3 - 2 * t);
+    colors.set([c, c * 0.97, c * 0.94], i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+function makeOutlineMaterial() {
+  const mat = new THREE.MeshBasicMaterial({ color: 0x1b1c20, side: THREE.BackSide });
+  mat.userData.width = { value: 0.01 };
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.outlineWidth = mat.userData.width;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float outlineWidth;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vec3 outlineScale = vec3(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz), length(modelMatrix[2].xyz));
+        transformed += normalize(normal) * outlineWidth / max(outlineScale, vec3(1e-4));`);
+  };
+  return mat;
 }
 
 // A gradient sky with a bright sun disc, used to light "sky" presets.
