@@ -1,219 +1,211 @@
-# Asset Forge
+<div align="center">
 
-Our own asset-creation tool, in the spirit of Blender, built so that **AI models can drive
-it completely**, and people can too. See [PLAN.md](PLAN.md) for the vision and roadmap.
+# ⚒️ Asset Forge
 
-**Status:** all 8 phases of the plan are done (foundation, beauty, shapes & generators, games, pixel art & AI services,
-AI superpowers, more pixel art, comfort & sharing).
+**A 3D and pixel-art asset workshop that AI can drive completely.**
 
-## Starting it
+Tell an AI what you want — *"a wooden treasure chest, a bit old, with gold inside"* — and watch it get built live.
+Then export it straight into your game.
 
-- **As a program:** double-click `Install Asset Forge.bat` once. It puts an **Asset Forge** shortcut with its own icon on
-  the desktop and in the Start menu; that opens Asset Forge in its own window (no browser tabs). The engine runs
-  invisibly and stops by itself 10 minutes after the last window closes.
-- **Quick:** double-click `Start Asset Forge.bat`. The window opens in your browser.
-- **Terminal:** `npm start` (opens the window) or `node src/server/index.js --no-open`.
-- **Claude Code:** just ask Claude, in this folder, to build something. The engine starts by itself.
+![Asset Forge window with generated props](docs/images/app.png)
 
-The window lives at <http://127.0.0.1:7777>. Everything is saved automatically.
+[What it is](#what-it-is) · [Quick start](#quick-start) · [Connect an AI](#connect-an-ai) · [Features](#features) ·
+[API docs](#documentation) · [Extend it](#extend-it)
 
-## What's in Phase 1
+</div>
 
-- 3D window: orbit camera, click to select, move/rotate/scale handles, undo/redo
-- Shapes: box (with rounded edges), sphere, cylinder, cone, torus, plane, capsule, groups
-- Your own pictures: drop them in, place them as flat pictures or paint them on shapes
-- 13 material presets (steel, gold, wood, glass, glow…) plus full manual control
-- 6 lighting presets (studio, product, outdoor, sunset, night, dramatic) with soft shadows
-- Render pictures (up to 4096 px, transparent background optional)
-- Export `.glb` 3D models (open in Godot, Unity, Unreal, Blender)
-- Projects that save after every change
-- Example plugin: `make_crate`, a wooden crate generator
+---
 
-## What's in Phase 2
+## What it is
 
-- Soft corner shadows (ambient occlusion) and real glow (bloom), switchable with `set_effects`
-- Styles for the whole scene with `set_style`: realistic, toon (with outlines), low-poly, clay
-- Generated materials, made by code and seamless: wood, planks, brushed and scratched metal,
-  rust, stone, brick, tiles, fabric, concrete, hand-painted. They are sized in real metres,
-  so they never stretch, and they export into the GLB as normal textures.
-- "Age" (`wear` 0–1): grime, scratches, faded colour and darker worn edges on rounded boxes
-- 13 new material presets that use these (oak, old_wood, rusty_metal, brick_wall, cobblestone…)
-- Try it: `node src/cli/forge.js run examples/showcase.json`
+Asset Forge is a small, friendly cousin of Blender, made for **game assets**: props, characters, level pieces,
+sprites, icons, tiles and effects. Its key difference: **every single thing it can do is a command that an AI can
+call**. That works for Claude, ChatGPT, local models, scripts, and you, clicking in the window.
 
-## What's in Phase 3
+- 🎨 **Beautiful by default.** Soft shadows, glow, generated wood, metal and stone materials, ageing and wear, and several looks (realistic, toon, low-poly, clay).
+- 🤖 **Built for AI.** 107 commands, available through MCP, HTTP, OpenAPI and a command line. The AI can *look* at its own work with `render_preview`.
+- 🎮 **Game-ready.** Exports straight into Godot 4 (collision, animations, SpriteFrames, TileSets), and as `.glb`, `.png` and `.aseprite`.
+- 👾 **Pixel art too.** It can turn any 3D model into crisp pixel-art sprite sheets from 4 or 8 directions, with palettes and outlines.
+- 🧩 **Expandable.** Drop a plugin in a folder and its new commands appear everywhere at once.
 
-- New shape types: **spin** (`lathe`, a profile spun around: bottles, vases, barrels), **outline**
-  (`extrude`, a flat outline with depth: blades, signs), **3D text**, **rock**, and **picture → 3D**
-  (`cutout`: the outline of an imported picture as a solid shape, picture on the front)
-- `cut_object`: cut one shape out of another (holes, windows, keyholes, grooves), melt them together, or keep the overlap
-- `mirror_object` (symmetry) and `repeat_object` (in a line, a circle or a grid)
-- Generator library (`plugins/props`): barrel, chest (open or closed, with treasure), rock (boulder,
-  cluster, pebbles, with moss), tree (round, pine, dead), crystal, potion (3 bottle shapes), sword,
-  coin (with symbol, stacks), lamp post, fence. Each has options and a seed for endless variations.
-- Generated textures are exported as JPEG, so GLB files stay small
-- Try it: `node src/cli/forge.js run examples/generators.json`
+Asset Forge is **not a game engine**: it makes the pieces, and your game engine puts them together.
 
-## What's in Phase 4
+<table>
+<tr>
+<td width="60%"><img src="docs/images/generators.png" alt="Barrel, chest, rock, trees, crystal, potions, sword, coins, fence and lamp post made by the generators"></td>
+<td width="40%"><img src="docs/images/sprites.png" alt="Pixel-art walk cycle of a wizard in four directions"></td>
+</tr>
+<tr>
+<td align="center"><sub>Every prop above came from one command each (with a seed for endless variations)</sub></td>
+<td align="center"><sub>A 3D character rendered as a pixel-art walk cycle, 4 directions</sub></td>
+</tr>
+</table>
 
-- **Animations**: `animate_object` with presets (spin, bob, pulse, swing, hinge, shake, hop) that can be
-  combined, or `set_keyframes` for custom movement. Play them with ▶ in the window. They are baked into GLB
-  exports, so Godot gets an AnimationPlayer.
-- **Sprite sheets**: `render_sprites` photographs an object from 1, 4 or 8 directions and every animation
-  frame, as crisp pixel art with a shared palette and outline (or smooth HD). A `.json` file describes the layout.
-- **Icons**: `make_icons` makes matching inventory icons (same angle, light, outline) for every object at once.
-- **Godot**: `export_godot` writes a `.glb` straight into a Godot 4 project with a collision shape
-  (`-colonly` / `-convcolonly` import hints) and animations; `export_each` exports every object or kit piece separately.
-- **Level kits**: `make_level_kit` (dungeon, cottage, scifi) builds floor, wall, door, window, pillar and stairs pieces on a grid.
-- **Snapping**: the small selector under the move/rotate/scale buttons snaps to a grid and to 15° turns.
-- Everything is in the new **🎮 Game** window too.
+## Quick start
 
-## What's in Phase 5
+**You need:** [Node.js](https://nodejs.org) 20 or newer, and Google Chrome or Microsoft Edge (used invisibly to draw pictures).
 
-**AI services** (window: **✨ AI**). Paste your own API key under Services; keys stay in `workspace/secrets.json`.
+```bash
+git clone https://github.com/jackdamnielzz/asset-forge.git
+cd asset-forge
+npm install
+npm start
+```
 
-| Service | Makes | Commands |
-|---|---|---|
-| OpenAI (gpt-image) | images, transparent backgrounds, edits with reference pictures | `generate_image` |
-| Google Gemini (Nano Banana 2.1 and others) | images, edits with reference pictures | `generate_image` |
-| NanoGPT (many models: Flux, HiDream, gpt-image, Veo, Kling, Wan…) | images, videos | `generate_image`, `generate_video` |
-| fal.ai (Trellis 2, Hunyuan 3D) | 3D models from a picture or text | `generate_3d` |
-| PixelLab (pixflux, image-to-pixelart) | pixel art from text, or from a picture / your 3D render | `generate_image` |
+The window opens at **<http://127.0.0.1:7777>**. Everything you make is saved automatically.
 
-`generate_image` can also send a render of your own 3D object as reference ("repaint this as pixel art").
-AIs that have their own image tools (like PixelLab in Claude Code) can simply `import_image` their results.
+**On Windows**, there are easier options:
 
-**Picture tools** (free): `remove_background`, `make_seamless` (photo → tiling texture), `pixelate_image`
-(picture → pixel art), `video_to_sprites`, and `import_model` for any `.glb`.
+| File | What it does |
+|---|---|
+| `Install Asset Forge.bat` | Adds an **Asset Forge** icon to your desktop and Start menu; it opens in its own window like a normal program |
+| `Start Asset Forge.bat` | Starts Asset Forge right away, in your browser |
+| `Share Asset Forge.bat` | Lets other computers on your network use it, protected by a password you choose |
 
-**Pixel art**
-- Palettes: `list_palettes` (pico8, sweetie16, endesga32, db16, gameboy, onebit) or your own colours
-- `render_sprites` now has dithering, `outlineStyle: "selout"`, pixel clean-up, `pixelsPerMetre` (same scale for all assets),
-  `azimuthOffset` (diamond isometric), several `animations` in one sheet, `maps: ["normal", "emission"]` for Godot 2D lights,
-  and `project` to write a Godot **SpriteFrames** `.tres` (ready for AnimatedSprite2D)
-- `make_tileset`: seamless pixel tiles where one ground blends into another (16 corner tiles), plus a Godot **TileSet** with terrains
-- `make_character`: a jointed character with idle, walk, run, attack and jump, ready for 8-direction sprites
-- CLI tip: `node src/cli/forge.js <command> @args.json` reads arguments from a file
-
-## What's in Phase 6
-
-- **Recipes**: everything made by a generator remembers its options (`get_recipe`). `remake` rebuilds it with
-  changes in the same place ("same chest, but older and bigger"). `save_recipe` / `use_recipe` store any object,
-  hand-built ones too, as a template for other projects.
-- **Variations**: `make_variations` builds several versions side by side and returns a picture of them;
-  `keep_variation` keeps the best one in the original's place.
-- **Quality check**: `check_quality` (✔ Check button) finds floating or loose parts, sinking objects, odd sizes,
-  heavy polygon counts, missing pictures and beauty issues, with a score and a fix for each.
-- **House styles**: `apply_house_style` gives a whole project one look (palette, light, style, effects) and snaps
-  colours to the palette; sprites, tiles and pixel art then use that palette too. Built in: storybook, dark_fantasy,
-  retro_pixel. `save_house_style` saves your own.
-
-## What's in Phase 7
-
-- **Pixel editor** (✎ on a library picture): pencil, eraser, fill, colour picker, mirror drawing, frames with onion skin, undo.
-  AIs edit pixels with `paint_pixels`.
-- **Effects** (`make_effect`, 🎮 Game → Effects): explosion, fire, smoke, magic, sparks, glitter, heal, lightning; looping ones loop seamlessly.
-- **Parallax backgrounds** (`make_parallax`): mountains, forest, city, clouds at day, sunset or night, in layers that repeat sideways.
-- **Colour tools**: `recolor_image` (swap colours), `make_palette_variants` (a red, green and blue version), `extract_palette`
-  ("steal" a palette from any picture, optionally as a house style), `check_pixel_style` (blurry pixels, too many or wrong colours, noise).
-- **Sheets**: `make_prop_sheet` (all objects as pixel props, one palette) and `make_iso_tiles` (a level kit as 2:1 isometric tiles).
-- **Aseprite**: `export_aseprite` turns any sprite sheet into an `.aseprite` file with a tag per animation row.
-- **Voxels**: a `voxels` object type (3D pixels) with build mode in the window (click to add, Shift to remove, Alt to paint),
-  `edit_voxels`, `voxels_from_image` (pixel sprite → 3D blocks) and `import_vox` (MagicaVoxel).
-- **PixelLab** joins the AI services: `generate_image { service: "pixellab" }` (pixflux, or image-to-pixelart with a reference).
-
-## What's in Phase 8
-
-- **Size reference**: the 🧍 button shows a see-through 1.8 m person; `render_preview { sizeReference: true }` for AIs.
-- **Asset library** (📚 Library): `save_asset` stores an object with a thumbnail, tags and description; `search_library`
-  finds assets, images and models by words or tags; `place_asset`, `tag_item`, `delete_library_item`.
-- **Windows program**: icon (`assets/icon.ico`, made by `scripts/make-icon.js`), app window, shortcuts (`Install Asset Forge.bat`).
-- **Sharing**: `Share Asset Forge.bat` asks for a password and opens Asset Forge to your local network. Others log in in their
-  browser; AIs elsewhere use `FORGE_URL=http://<address>:7777` and `FORGE_PASSWORD=<password>` with the MCP server or CLI.
-  Other computers cannot read or write files on this PC by path, nor change AI service settings. Windows may ask once
-  whether Node.js may use the network. For friends outside your home network, use a tunnel service (e.g. Tailscale).
-- **Safety**: requests from other websites (CSRF) and unknown host names (DNS rebinding) are now refused, also without sharing.
-
-## After the plan
-
-- **Tested in real Godot 4.6**: `npm run test:godot` exports a chest (collision + animation), level-kit pieces,
-  character sprites, a tileset and an effect into a temporary Godot project and lets Godot import and check them.
-- **Version history**: every project keeps earlier versions (automatically every few minutes, before big changes, and
-  checkpoints you make yourself). Projects → "Earlier versions" to go back; `list_versions`, `save_checkpoint`, `restore_version`.
-- **Backups**: once a day a dated copy of all projects, the library and the history goes to `workspace-backups/`
-  (last 7 kept); `backup_now { to }` copies everything to another folder, e.g. a USB stick.
-- **PixelLab in full** (✨ AI → PixelLab): every PixelLab tool (70+: images, characters in 4/8 directions, animations,
-  tilesets, isometric tiles, UI, fonts, effects, editing) with **all** of its settings, read live from PixelLab's own
-  specification, so new PixelLab features appear automatically. The window builds a form per tool; long jobs are followed
-  until done and every resulting picture lands in the library. Commands: `pixellab_tools`, `pixellab_tool_info`,
-  `pixellab_run`, `pixellab_balance`.
-- **Multi-select**: Ctrl+click (in the 3D view or the object list) selects several objects; group them (Ctrl+G),
-  give them a material or colour, duplicate or delete them at once. `group_objects` / `ungroup` keep everything in place.
-
-## Documentation for AIs
-
-Any AI can learn the whole API from these (they are generated from the software itself):
-
-- **[llms.txt](llms.txt)** — a compact guide for AIs with every command (live: `http://127.0.0.1:7777/llms.txt`)
-- **[docs/API.md](docs/API.md)** — every command and every setting explained, with examples (live and searchable: `http://127.0.0.1:7777/docs`)
-- **[docs/openapi.json](docs/openapi.json)** — OpenAPI 3.1, for ChatGPT actions, LangChain, n8n and other tools (live: `/api/openapi.json`)
-- **[AGENTS.md](AGENTS.md)** — where to start, for AI coding agents
-
-After adding or changing commands, run `npm run docs` to refresh the files; `npm test` fails if a command or setting is not explained.
-
-## How AIs control it
-
-Every action is a **command**. The window's buttons, the MCP tools, the HTTP API and the CLI
-all use the same command list, so anything one of them can do, the others can too.
+## Connect an AI
 
 | Who | How |
 |---|---|
-| Claude Code (in this folder) | Automatic via `.mcp.json` |
-| Claude Code (anywhere) | `claude mcp add asset-forge -- node D:/Programmeren/asset-forge/src/mcp/index.js` |
-| Claude Desktop / Cursor / other MCP apps | Add an MCP server: command `node`, args `D:/Programmeren/asset-forge/src/mcp/index.js` |
-| Any other AI, script or language | HTTP: `GET /api/commands` lists everything with input schemas; `POST /api/commands/<name>` with JSON runs one |
-| Terminal | `node src/cli/forge.js list`, `node src/cli/forge.js add_object type=box` |
+| **Claude Code** in this folder | Nothing to do: `.mcp.json` connects it automatically. Just ask: *"make a fantasy potion shop counter"* |
+| **Claude Code** anywhere | `claude mcp add asset-forge -- node /path/to/asset-forge/src/mcp/index.js` |
+| **Claude Desktop, Cursor**, other MCP apps | Add an MCP server with command `node`, argument `/path/to/asset-forge/src/mcp/index.js` |
+| **ChatGPT actions, LangChain, n8n**, … | Import `http://127.0.0.1:7777/api/openapi.json` |
+| **Any AI or script** | HTTP: `POST /api/commands/<name>` with a JSON body |
+| **Terminal** | `node src/cli/forge.js add_object type=box` |
 
-HTTP example:
+A tip for any AI: tell it *"Read http://127.0.0.1:7777/llms.txt first"*. That one page teaches it everything.
 
 ```bash
-curl -X POST http://127.0.0.1:7777/api/commands/add_object -H "Content-Type: application/json" -d "{\"type\":\"sphere\",\"material\":{\"preset\":\"gold\"}}"
+curl -X POST http://127.0.0.1:7777/api/commands/make_chest -H "Content-Type: application/json" -d "{\"open\":true,\"wear\":0.4}"
 ```
 
-`render_preview` returns a PNG so an AI can *look* at its work (`?format=png` on HTTP returns the raw image).
-Pictures and 3D rendering run in a hidden Chrome/Edge window, so they work even when the
-window isn't open.
+Every answer looks like `{ "ok": true, "result": … }`. Pictures come back as base64, or as a real PNG with `?format=png`.
 
-## Folders
+## Features
 
-```
-src/core/       the engine: scene, commands, history, saving
-src/server/     HTTP API, live connection to windows, hidden renderer
-src/mcp/        the MCP plug for Claude Code and other AI apps
-src/cli/        command-line tool
-src/shared/     presets used by both engine and window
-web/            the window (three.js)
-plugins/        add-ons; each folder is one plugin
-workspace/      your projects, image library and exports (not in git)
-test/           smoke test: npm test
-```
+<details open>
+<summary><b>🧱 Modelling</b></summary>
 
-## Writing a plugin
+- Shapes: box with rounded edges, sphere, cylinder, cone, torus, plane, capsule, **spin** (bottles, vases), **outline** (blades, signs), **3D text**, **rock**, **voxels** and **picture → 3D**
+- Cut holes, melt shapes together or keep only the overlap; mirror; repeat in a line, circle or grid
+- Groups, multi-select, move, rotate and scale handles, grid snapping, unlimited undo
+- A see-through 1.8 m person to check sizes
+</details>
 
-Create `plugins/<name>/index.js`:
+<details open>
+<summary><b>✨ Looks</b></summary>
+
+- 26 material presets, including generated, seamless materials: oak, old wood, planks, brushed and rusty metal, stone, brick, tiles, fabric and hand-painted
+- `wear` from 0 to 1 adds grime, scratches, faded colour and worn edges
+- 6 lighting moods, soft contact shadows, glow, and scene looks: realistic, toon, low-poly, clay
+- House styles give a whole project one palette and look (storybook, dark fantasy, retro pixel, or your own)
+</details>
+
+<details open>
+<summary><b>🏭 Generators</b> — complete assets from one command</summary>
+
+Crate, barrel, chest, rock, tree, crystal, potion, sword, coin, lamp post, fence, a character with animations, and
+level kits (dungeon, cottage, sci-fi). Each one has options and a seed.
+**Recipes** remember how something was made, so you can say *"the same chest, but older"* (`remake`);
+**variations** build several versions side by side to pick from.
+</details>
+
+<details>
+<summary><b>🎮 Games and Godot</b></summary>
+
+- Animations: presets (spin, bob, pulse, swing, hinge, shake, hop) or your own keyframes, baked into the GLB
+- `export_godot` writes straight into a Godot 4 project, with collision shapes and an AnimationPlayer
+- Godot **SpriteFrames** and **TileSet** files, ready to use
+- Tested in real Godot 4.6: `npm run test:godot`
+</details>
+
+<details>
+<summary><b>👾 Pixel art and 2D</b></summary>
+
+- Sprite sheets from 1, 4 or 8 directions, with palettes (PICO-8, Endesga 32, Game Boy …), dithering, outlines and normal maps for 2D lights
+- Inventory icons, prop sheets, isometric tiles and autotiling ground tilesets
+- Effects (explosion, fire, magic, lightning …), parallax backgrounds, a pixel editor with frames
+- Colour tools: recolour, palette variants, steal a palette from a picture, a pixel-style checker
+- Import MagicaVoxel `.vox`; export `.aseprite`
+</details>
+
+<details>
+<summary><b>🤖 Outside AI services</b> (optional, you use your own key)</summary>
+
+| Service | Makes |
+|---|---|
+| OpenAI (gpt-image) | Pictures, edits, transparent backgrounds |
+| Google Gemini (Nano Banana) | Pictures and edits |
+| NanoGPT | Pictures and videos from many models |
+| fal.ai (Trellis, Hunyuan 3D) | 3D models from a picture or text |
+| PixelLab | **Every** PixelLab tool with all its settings: characters, animations, tilesets, UI, fonts … |
+
+Keys stay on your computer (`workspace/secrets.json`) and are never sent back through the API.
+These services cost money, so AIs are told to ask you first.
+</details>
+
+<details>
+<summary><b>🛟 Safety and comfort</b></summary>
+
+- Saves after every change, version history and checkpoints, and a daily backup (the last 7 are kept)
+- A quality check finds floating parts, odd sizes, heavy models and more, each with a fix
+- An asset library with thumbnails, tags and search
+- Protection against other websites and unknown hosts; a password when sharing
+</details>
+
+## Documentation
+
+Everything is generated from the software itself, so it is always complete: every command and every setting is explained.
+
+| | For | Live (while Asset Forge runs) |
+|---|---|---|
+| [llms.txt](llms.txt) | AIs: a short guide plus every command | `/llms.txt` |
+| [docs/API.md](docs/API.md) | Everyone: every command with all its settings and an example | `/docs` (searchable) |
+| [docs/openapi.json](docs/openapi.json) | Tools: OpenAPI 3.1 | `/api/openapi.json` |
+| [AGENTS.md](AGENTS.md) | AI coding agents: where to start | — |
+| [PLAN.md](PLAN.md) | The vision and roadmap | — |
+
+## Extend it
+
+A plugin is one folder. Create `plugins/my-plugin/index.js`:
 
 ```js
 export const description = 'What it does';
 export default function register({ registry, z, engine }) {
   registry.define({
-    name: 'my_command',
-    description: 'Explain it for humans and AIs',
-    input: z.object({ size: z.number().optional() }),
+    name: 'make_pillar',
+    description: 'A stone pillar. Explain it as an instruction: AIs read this.',
+    input: z.object({ height: z.number().optional().describe('Height in metres') }),
     async handler(args, ctx) {
-      return engine.execute('add_object', { type: 'box', params: { width: args.size ?? 1 } }, ctx.meta);
+      return engine.execute('add_object', {
+        type: 'box', params: { width: 0.4, height: args.height ?? 2, depth: 0.4, bevel: 0.03 },
+        material: { preset: 'cobblestone' },
+      }, ctx.meta);
     },
   });
 }
 ```
 
-Restart the engine and the command appears in the window's API, the MCP tools and the CLI.
-See `plugins/crate` for a full example.
+Restart, and `make_pillar` appears in the window's API, the MCP tools, the command line and the docs.
+See [plugins/crate](plugins/crate) and [plugins/props](plugins/props) for full examples.
+
+<details>
+<summary><b>For developers</b></summary>
+
+```
+src/core/      the engine: scene, commands, undo, history, saving, docs
+src/server/    HTTP API, live link to windows, hidden renderer, access control
+src/mcp/       the MCP server for Claude and other AI apps
+src/cli/       command line
+src/shared/    presets, palettes and animations used by engine and window
+web/           the window (three.js, no build step)
+plugins/       add-ons; each folder is one plugin
+docs/          generated API docs
+test/          npm test (end-to-end) and npm run test:godot
+workspace/     your projects, library and exports (not in git)
+```
+
+- `npm test` runs the end-to-end check; it fails if a command or setting is not explained.
+- `npm run docs` refreshes `llms.txt` and `docs/` after changing commands.
+- Architecture rules are in [CLAUDE.md](CLAUDE.md).
+</details>
