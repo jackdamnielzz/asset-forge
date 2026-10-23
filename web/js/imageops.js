@@ -5,11 +5,121 @@ import { hardenAlpha, quantize, pixelOutline } from './pixelart.js';
 export async function imageOp(op, file, options) {
   const img = await loadImage(`/library/images/${file}`);
   let canvas = toCanvas(img, img.width, img.height);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const data = () => ctx.getImageData(0, 0, canvas.width, canvas.height);
   if (op === 'remove_background') removeBackground(canvas, options.tolerance ?? 0.12);
   else if (op === 'seamless') canvas = seamless(canvas, options.blend ?? 0.25);
   else if (op === 'pixelate') canvas = pixelate(canvas, options);
+  else if (op === 'recolor') { const img = data(); recolor(img, options.map); ctx.putImageData(img, 0, 0); }
+  else if (op === 'hue') { const img = data(); hueShift(img, options.degrees ?? 0, options.saturation ?? 1); ctx.putImageData(img, 0, 0); }
+  else if (op === 'paint') { const img = data(); paint(img, options); ctx.putImageData(img, 0, 0); }
+  else if (op === 'extract_palette') return { colors: extractPalette(data(), options.count ?? 16) };
+  else if (op === 'analyze') return analyze(data(), options);
+  else if (op === 'rgba') { const img = data(); return { width: img.width, height: img.height, rgba: bytesToBase64(img.data) }; }
   else throw new Error(`Unknown image operation ${op}`);
   return { png: canvas.toDataURL('image/png').split(',')[1] };
+}
+
+// ---- colour tools ----------------------------------------------------------------------
+
+// Exact colour swaps: { "#from": "#to" }.
+function recolor(img, map) {
+  const lut = new Map(Object.entries(map).map(([a, b]) => [hexKey(a), rgbOf(b)]));
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i + 3]) continue;
+    const to = lut.get((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+    if (to) { d[i] = to[0]; d[i + 1] = to[1]; d[i + 2] = to[2]; }
+  }
+}
+
+function hueShift(img, degrees, sat) {
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i + 3]) continue;
+    const [h, s, l] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+    const [r, g, b] = hslToRgb((h + degrees / 360 + 1) % 1, Math.min(1, s * sat), l);
+    d[i] = r; d[i + 1] = g; d[i + 2] = b;
+  }
+}
+
+// Set single pixels and flood-fill areas: { pixels: [[x, y, "#hex" | null]], fills: [[x, y, "#hex" | null]] }.
+function paint(img, { pixels = [], fills = [] }) {
+  const { width: w, height: h, data: d } = img;
+  const put = (i, c) => { if (c === null) { d[i * 4 + 3] = 0; return; } const [r, g, b] = rgbOf(c); d[i * 4] = r; d[i * 4 + 1] = g; d[i * 4 + 2] = b; d[i * 4 + 3] = 255; };
+  for (const [x, y, c] of pixels) if (x >= 0 && y >= 0 && x < w && y < h) put(y * w + x, c);
+  for (const [x, y, c] of fills) {
+    if (x < 0 || y < 0 || x >= w || y >= h) continue;
+    const start = y * w + x;
+    const key = (i) => (d[i * 4 + 3] === 0 ? -1 : (d[i * 4] << 16) | (d[i * 4 + 1] << 8) | d[i * 4 + 2]);
+    const target = key(start);
+    const seen = new Uint8Array(w * h);
+    const stack = [start];
+    seen[start] = 1;
+    while (stack.length) {
+      const i = stack.pop();
+      put(i, c);
+      const px = i % w, py = (i - px) / w;
+      for (const j of [px > 0 ? i - 1 : -1, px < w - 1 ? i + 1 : -1, py > 0 ? i - w : -1, py < h - 1 ? i + w : -1]) {
+        if (j >= 0 && !seen[j] && key(j) === target) { seen[j] = 1; stack.push(j); }
+      }
+    }
+  }
+}
+
+function extractPalette(img, count) {
+  const copy = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
+  // let quantize pick the colours, then sort them from dark to light
+  return quantize(copy, count).sort((a, b) => lum(a) - lum(b));
+}
+
+// Numbers for the pixel style check.
+function analyze(img, { palette = null }) {
+  const { width: w, height: h, data: d } = img;
+  const colors = new Set();
+  let semi = 0, offPalette = 0, lonely = 0;
+  const pal = palette?.length ? new Set(palette.map((c) => hexKey(c))) : null;
+  const key = (i) => (d[i * 4 + 3] === 0 ? -1 : (d[i * 4] << 16) | (d[i * 4 + 1] << 8) | d[i * 4 + 2]);
+  for (let i = 0; i < w * h; i++) {
+    const a = d[i * 4 + 3];
+    if (!a) continue;
+    if (a < 255) semi++;
+    const k = key(i);
+    colors.add(k);
+    if (pal && !pal.has(k)) offPalette++;
+    const x = i % w, y = (i - x) / w;
+    if (x > 0 && y > 0 && x < w - 1 && y < h - 1) {
+      const ns = [key(i - 1), key(i + 1), key(i - w), key(i + w)];
+      if (!ns.includes(k) && ns.every((n) => n === ns[0])) lonely++;
+    }
+  }
+  return { width: w, height: h, colorCount: colors.size, semiTransparent: semi, offPalette, lonelyPixels: lonely };
+}
+
+const hexKey = (hex) => parseInt(String(hex).replace('#', ''), 16);
+const rgbOf = (hex) => { const n = hexKey(hex); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const lum = (hex) => { const [r, g, b] = rgbOf(hex); return r * 0.3 + g * 0.59 + b * 0.11; };
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min, s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h / 6, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  if (!s) return [l, l, l].map((v) => Math.round(v * 255));
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const f = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+  return [f(h + 1 / 3), f(h), f(h - 1 / 3)].map((v) => Math.round(v * 255));
+}
+
+function bytesToBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 // Evenly spaced frames from a video, laid out side by side.

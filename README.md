@@ -3,7 +3,7 @@
 Our own asset-creation tool, in the spirit of Blender, built so that **AI models can drive
 it completely**, and people can too. See [PLAN.md](PLAN.md) for the vision and roadmap.
 
-**Status:** Phases 1–6 are done (foundation, beauty, shapes & generators, games, pixel art & AI services, AI superpowers).
+**Status:** Phases 1–7 are done (foundation, beauty, shapes & generators, games, pixel art & AI services, AI superpowers, more pixel art).
 
 ## Starting it
 
@@ -73,6 +73,7 @@ The window lives at <http://127.0.0.1:7777>. Everything is saved automatically.
 | Google Gemini (Nano Banana 2.1 and others) | images, edits with reference pictures | `generate_image` |
 | NanoGPT (many models: Flux, HiDream, gpt-image, Veo, Kling, Wan…) | images, videos | `generate_image`, `generate_video` |
 | fal.ai (Trellis 2, Hunyuan 3D) | 3D models from a picture or text | `generate_3d` |
+| PixelLab (pixflux, image-to-pixelart) | pixel art from text, or from a picture / your 3D render | `generate_image` |
 
 `generate_image` can also send a render of your own 3D object as reference ("repaint this as pixel art").
 AIs that have their own image tools (like PixelLab in Claude Code) can simply `import_image` their results.
@@ -101,6 +102,20 @@ AIs that have their own image tools (like PixelLab in Claude Code) can simply `i
 - **House styles**: `apply_house_style` gives a whole project one look (palette, light, style, effects) and snaps
   colours to the palette; sprites, tiles and pixel art then use that palette too. Built in: storybook, dark_fantasy,
   retro_pixel. `save_house_style` saves your own.
+
+## What's in Phase 7
+
+- **Pixel editor** (✎ on a library picture): pencil, eraser, fill, colour picker, mirror drawing, frames with onion skin, undo.
+  AIs edit pixels with `paint_pixels`.
+- **Effects** (`make_effect`, 🎮 Game → Effects): explosion, fire, smoke, magic, sparks, glitter, heal, lightning; looping ones loop seamlessly.
+- **Parallax backgrounds** (`make_parallax`): mountains, forest, city, clouds at day, sunset or night, in layers that repeat sideways.
+- **Colour tools**: `recolor_image` (swap colours), `make_palette_variants` (a red, green and blue version), `extract_palette`
+  ("steal" a palette from any picture, optionally as a house style), `check_pixel_style` (blurry pixels, too many or wrong colours, noise).
+- **Sheets**: `make_prop_sheet` (all objects as pixel props, one palette) and `make_iso_tiles` (a level kit as 2:1 isometric tiles).
+- **Aseprite**: `export_aseprite` turns any sprite sheet into an `.aseprite` file with a tag per animation row.
+- **Voxels**: a `voxels` object type (3D pixels) with build mode in the window (click to add, Shift to remove, Alt to paint),
+  `edit_voxels`, `voxels_from_image` (pixel sprite → 3D blocks) and `import_vox` (MagicaVoxel).
+- **PixelLab** joins the AI services: `generate_image { service: "pixellab" }` (pixflux, or image-to-pixelart with a reference).
 
 ## How AIs control it
 

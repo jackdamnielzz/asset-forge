@@ -119,7 +119,7 @@
 - Quality check (floating parts, overlaps, size, polygon count)
 - House style (shared palette, materials and lighting for one game)
 
-### Phase 7 — More pixel art
+### Phase 7 — More pixel art ✅ done (2026-10-23)
 - Pixel editor inside the app (pencil, fill, mirror, onion skin)
 - Palette swaps (colour variants of one sprite) and "steal a palette" from a picture
 - Effects: explosions, fire, smoke, magic, hit sparks, glitter

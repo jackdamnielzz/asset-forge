@@ -98,6 +98,13 @@ export function buildParams(type, current, given = {}, engine) {
     if (!FONTS.includes(params.font)) throw new CommandError(`Unknown font. Choose: ${FONTS.join(', ')}`);
   }
   if (type === 'rock') params.detail = Math.max(0, Math.min(5, Math.round(params.detail)));
+  if (type === 'voxels') {
+    const n = params.palette.length;
+    if (!n || n > 256 || !params.palette.every((c) => typeof c === 'string')) throw new CommandError('voxels palette: 1–256 colours like "#aa7744"');
+    const ok = params.voxels.length > 0 && params.voxels.every((v) => Array.isArray(v) && v.length === 4 && v.every(Number.isInteger) && v[3] >= 0 && v[3] < n);
+    if (!ok) throw new CommandError('voxels: need [[x, y, z, paletteIndex], ...] with whole numbers and an index into the palette');
+    if (params.voxels.length > 200000) throw new CommandError('Too many voxels (max 200,000).');
+  }
   if (type === 'model' && !engine.library.models?.[params.assetId]) {
     throw new CommandError('Model objects need params.assetId from import_model or generate_3d (see list_library).');
   }

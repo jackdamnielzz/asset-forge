@@ -41,7 +41,8 @@ export function register(registry, { z, engine }) {
         scale: toScale(args.scale ?? 1),
         visible: args.visible ?? true,
         params,
-        material: args.type === 'group' ? null : applyMaterial(defaultMaterial(), args.material ?? {}, engine),
+        // voxels carry their own colours, so their material stays white
+        material: args.type === 'group' ? null : applyMaterial(defaultMaterial(args.type === 'voxels' ? 'matte' : 'plastic'), args.type === 'voxels' ? { color: '#ffffff', ...args.material } : args.material ?? {}, engine),
       };
       if ((args.type === 'image' || args.type === 'cutout') && !args.material?.texture) {
         obj.material = { ...obj.material, texture: params.assetId, doubleSided: true, roughness: 0.8 };

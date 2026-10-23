@@ -7,6 +7,9 @@ import { ANIMATION_PRESETS } from '/shared/animations.js';
 import { PALETTES } from '/shared/palettes.js';
 import { imageOp, videoFrames } from './imageops.js';
 import { renderTileset } from './tileset.js';
+import { renderEffect, renderParallax, EFFECTS } from './fx2d.js';
+import { voxelHit } from './voxels.js';
+import { openPixelEditor } from './pixeleditor.js';
 
 const DEG = Math.PI / 180;
 const role = new URLSearchParams(location.search).get('role') === 'renderer' ? 'renderer' : 'viewer';
@@ -61,6 +64,9 @@ function connect(onScene) {
           render_sprites: (o) => view.renderSprites(o),
           render_tileset: (o) => renderTileset(o),
           inspect: (o) => view.inspect(o),
+          render_effect: (o) => renderEffect(o),
+          render_parallax: (o) => renderParallax(o),
+          sprite_atlas: (o) => view.renderAtlas(o),
           image_op: (o) => imageOp(o.op, o.file, o.options),
           video_frames: (o) => videoFrames(o),
         };
@@ -133,6 +139,16 @@ function startWindow() {
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), view.camera);
     const hit = ray.intersectObjects(view.content.children, true).find((h) => h.object.visible);
+    // voxel build mode: click adds a block on the clicked face, Shift removes, Alt paints
+    const sel = state.selected && state.scene.objects[state.selected];
+    if (state.voxelMode && sel?.type === 'voxels' && hit?.object.userData.forgeId === sel.id) {
+      const { cell, front } = voxelHit(hit, hit.object, sel.params.voxelSize);
+      const c = state.voxelColor;
+      if (e.shiftKey) run('edit_voxels', { id: sel.id, remove: [cell] });
+      else if (e.altKey) run('edit_voxels', { id: sel.id, paint: [[...cell, c]] });
+      else run('edit_voxels', { id: sel.id, add: [[...front, c]] });
+      return;
+    }
     select(hit?.object.userData.forgeId ?? null);
   });
 
@@ -258,6 +274,7 @@ const ICONS = {
   extrude: '<path d="M4 18l4-12h8l4 12z M8 6l2-3h8l2 3"/>',
   text: '<path d="M5 6V4h14v2 M12 4v16 M9 20h6"/>',
   rock: '<path d="M3 18l3-7 5-4 6 2 4 6-2 3z"/>',
+  voxels: '<path d="M4 9h6v6H4z M10 9h6v6h-6z M7 3h6v6H7z M10 15h6v6h-6z"/>',
   group: '<rect x="3" y="5" width="18" height="14" rx="2" stroke-dasharray="3 2"/>',
 };
 const SHAPE_LABELS = { lathe: 'spin', extrude: 'outline' };
@@ -344,7 +361,9 @@ function renderLibrary() {
       const r = await run('add_object', { type: 'cutout', name: `${img.name}_3d`, params: { assetId: img.id } });
       if (r) window.forgeSelect(r.id);
     };
-    t.append(solid);
+    const edit = el('button', { class: 'thumb-btn', style: 'left:3px;right:auto', title: 'Edit the pixels' }, '✎');
+    edit.onclick = (e) => { e.stopPropagation(); editPixels(img); };
+    t.append(solid, edit);
     box.append(t);
   }
   const models = document.getElementById('model-library');
@@ -440,10 +459,12 @@ function objectPanel(o) {
     ),
   ];
 
-  const paramKeys = Object.keys(o.params).filter((k) => k !== 'assetId');
+  // voxel lists can be huge; they are edited in build mode instead of as text
+  const paramKeys = Object.keys(o.params).filter((k) => k !== 'assetId' && !(o.type === 'voxels' && (k === 'voxels' || k === 'palette')));
   if (paramKeys.length) {
     parts.push(el('h3', {}, 'Shape'), el('div', { class: 'prop-group' }, paramKeys.map((k) => paramRow(o, k, upd))));
   }
+  if (o.type === 'voxels') parts.push(voxelPanel(o));
   parts.push(recipePanel(o));
   if (o.type !== 'group') parts.push(modelingPanel(o));
   parts.push(animationPanel(o));
@@ -541,6 +562,23 @@ function modelingPanel(o) {
       }, '◌ Circle')),
   );
   return el('div', {}, el('h3', {}, 'Modelling'), el('div', { class: 'prop-group' }, items));
+}
+
+function editPixels(asset) {
+  openPixelEditor({ asset, palette: state.scene.environment.housePalette ?? [], el, openModal, closeModal, run, toast });
+}
+
+// ---- voxels ------------------------------------------------------------------------
+
+function voxelPanel(o) {
+  state.voxelColor ??= o.params.palette[0] ?? '#c8a064';
+  const mode = el('input', { type: 'checkbox', checked: !!state.voxelMode, onchange: (e) => { state.voxelMode = e.target.checked; } });
+  const pick = el('input', { type: 'color', value: toHex(state.voxelColor), oninput: (e) => { state.voxelColor = e.target.value; } });
+  const swatches = el('div', { class: 'swatches' }, o.params.palette.slice(0, 48).map((c) => el('span', { style: `background:${c};cursor:pointer`, title: c, onclick: () => { state.voxelColor = c; pick.value = toHex(c); } })));
+  return el('div', {}, el('h3', {}, `Voxels · ${o.params.voxels.length} blocks`), el('div', { class: 'prop-group' },
+    el('label', { class: 'inline' }, mode, ' Build mode'),
+    el('p', { class: 'hint' }, 'In build mode: click a block face to add a block, Shift+click to remove one, Alt+click to paint it.'),
+    row('Colour', pick), swatches));
 }
 
 // ---- recipes & variations ------------------------------------------------------------
@@ -816,7 +854,94 @@ function tabbedModal(title, tabs, key) {
 
 // Icons, sprite sheets, tilesets and Godot export in one window.
 function openGameModal() {
-  tabbedModal('Game assets', { Icons: iconsTab, Sprites: spritesTab, Tiles: tilesTab, Godot: godotTab }, 'forge.gameTab');
+  tabbedModal('Game assets', { Icons: iconsTab, Sprites: spritesTab, Tiles: tilesTab, Effects: effectsTab, Backgrounds: backgroundsTab, Sheets: sheetsTab, Godot: godotTab }, 'forge.gameTab');
+}
+
+// Plays the frames of a horizontal sprite strip, enlarged.
+function playStrip(src, frameSize, frames, zoom = 3) {
+  const c = el('canvas', { class: 'pixel-canvas', width: frameSize * zoom, height: frameSize * zoom, style: 'background:#15171b;border-radius:6px' });
+  const ctx = c.getContext('2d');
+  const img = new Image();
+  img.src = src;
+  let f = 0;
+  const tick = setInterval(() => {
+    if (!document.body.contains(c)) return clearInterval(tick);
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, f * frameSize, 0, frameSize, frameSize, 0, 0, c.width, c.height);
+    f = (f + 1) % frames;
+  }, 1000 / 12);
+  return c;
+}
+
+function effectsTab() {
+  const type = sel(Object.keys(EFFECTS).map((k) => [k]), 'fire');
+  const size = sel([[16], [24], [32], [48], [64], [96], [128]], 48);
+  const tint = el('input', { type: 'checkbox' });
+  const color = el('input', { type: 'color', value: '#5cf08a' });
+  const palette = paletteSelect();
+  const toGodot = el('input', { type: 'checkbox', checked: false });
+  const out = el('div', {});
+  const go = async () => {
+    out.innerHTML = '<p class="muted">Drawing…</p>';
+    const args = { type: type.value, size: Number(size.value), seed: Math.floor(Math.random() * 9999), filename: type.value };
+    if (tint.checked) args.color = color.value;
+    if (palette.value) args.palette = palette.value;
+    if (toGodot.checked && godotProject()) args.project = godotProject();
+    const r = await run('make_effect', args);
+    out.innerHTML = '';
+    if (!r) return;
+    const src = `data:image/png;base64,${r.image}`;
+    out.append(el('div', { class: 'btn-row' }, playStrip(src, r.frameSize, r.columns, Math.max(2, Math.floor(192 / r.frameSize))), el('img', { src, class: 'pixelated', style: `height:${r.frameSize * 2}px` })),
+      el('p', { class: 'hint' }, `${r.columns} frames, ${r.loop ? 'loops seamlessly' : 'plays once'}. ${Object.values(r.files).join(', ')}`));
+  };
+  return el('div', {},
+    el('p', { class: 'hint' }, 'Animated pixel effects for games. Press again for a different variation.'),
+    el('div', { class: 'form-grid' }, field('Effect', type), field('Size', size), el('label', { class: 'check' }, tint, ' Tint ', color), field('Palette', palette),
+      el('label', { class: 'check', title: godotProject() || 'Set a Godot project in the Godot tab first' }, toGodot, ' Send to Godot')),
+    el('button', { class: 'primary', onclick: go }, 'Make effect'), out);
+}
+
+function backgroundsTab() {
+  const theme = sel([['mountains'], ['forest'], ['city'], ['clouds']], 'mountains');
+  const time = sel([['day'], ['sunset'], ['night']], 'day');
+  const size = sel([['320x180', '320 × 180'], ['480x270', '480 × 270'], ['640x360', '640 × 360'], ['256x144', '256 × 144']], '320x180');
+  const palette = paletteSelect();
+  const out = el('div', {});
+  const go = async () => {
+    out.innerHTML = '<p class="muted">Painting layers…</p>';
+    const [w, h] = size.value.split('x').map(Number);
+    const args = { theme: theme.value, time: time.value, width: w, height: h, seed: Math.floor(Math.random() * 9999) };
+    if (palette.value) args.palette = palette.value;
+    const r = await run('make_parallax', args);
+    out.innerHTML = '';
+    if (r) out.append(el('img', { src: `data:image/png;base64,${r.image}`, class: 'pixelated', style: `width:${Math.min(760, r.width * 2)}px` }),
+      el('p', { class: 'hint' }, `${r.layers.length} layers that each repeat sideways; suggested scroll speeds back to front: ${r.scrollSpeeds.join(', ')}. Saved in ${r.preview.replace(/[^\\/]+$/, '')}`));
+  };
+  return el('div', {},
+    el('p', { class: 'hint' }, 'Layered pixel backgrounds for side-scrollers: the far layers move slower than the near ones (parallax).'),
+    el('div', { class: 'form-grid' }, field('Theme', theme), field('Time of day', time), field('Size', size), field('Palette', palette)),
+    el('button', { class: 'primary', onclick: go }, 'Make background'), out);
+}
+
+function sheetsTab() {
+  const size = sel([[32], [48], [64], [96]], 48);
+  const palette = paletteSelect();
+  const o = selectedObj();
+  const out = el('div', {});
+  const show = (r) => { out.innerHTML = ''; if (r) out.append(el('img', { src: `data:image/png;base64,${r.image}`, class: 'pixelated', style: 'max-width:100%' }), el('p', { class: 'hint' }, `Saved as ${r.files.sheet}`)); };
+  const busy = () => { out.innerHTML = '<p class="muted">Rendering…</p>'; };
+  const pal = () => (palette.value ? { palette: palette.value } : {});
+  return el('div', {},
+    el('p', { class: 'hint' }, 'Several objects drawn as pixel art with the same camera, scale and palette, packed in one sheet.'),
+    el('div', { class: 'form-grid' }, field('Frame size', size), field('Palette', palette)),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'primary', onclick: async () => { busy(); show(await run('make_prop_sheet', { frameSize: Number(size.value), ...pal() })); } }, 'Prop sheet of all objects'),
+      el('button', {
+        disabled: !(o?.type === 'group'), title: o?.type === 'group' ? '' : 'Select a level kit (group) first',
+        onclick: async () => { busy(); show(await run('make_iso_tiles', { group: o.id, ...pal() })); },
+      }, o?.type === 'group' ? `Isometric tiles of "${o.name}"` : 'Isometric tiles (select a kit)')),
+    out);
 }
 
 function godotProject() {
@@ -1011,6 +1136,51 @@ function pictureToolsTab() {
       el('button', { class: 'primary', onclick: need(() => run('pixelate_image', { assetId: pick.value, size: Number(size.value), colors: Number(colors.value), ...(palette.value ? { palette: palette.value } : {}), outline: '#16171b' })) }, 'Picture → pixel art'),
       el('button', { onclick: need(() => run('remove_background', { assetId: pick.value })) }, 'Remove background'),
       el('button', { onclick: need(() => run('make_seamless', { assetId: pick.value })) }, 'Photo → seamless texture')),
+    el('h3', { style: 'margin-top:14px' }, 'Pixel art'),
+    el('div', { class: 'btn-row' },
+      el('button', { onclick: () => pick.value && editPixels(state.library.images[pick.value]) }, '✎ Edit pixels'),
+      el('button', {
+        onclick: async () => {
+          if (!pick.value) return;
+          const r = await run('make_palette_variants', { assetId: pick.value, count: 3 });
+          out.innerHTML = '';
+          if (r) out.append(el('div', { class: 'icon-grid' }, r.variants.map((v) => el('img', { src: `/library/images/${state.library.images[v.assetId]?.file}`, class: 'pixelated' }))));
+        },
+      }, '🎨 Colour variants'),
+      el('button', {
+        onclick: async () => {
+          if (!pick.value) return;
+          const r = await run('extract_palette', { assetId: pick.value, count: 16 });
+          out.innerHTML = '';
+          if (r) out.append(el('div', { class: 'swatches' }, r.colors.map((c) => el('span', { style: `background:${c};width:24px;height:24px`, title: c }))),
+            el('button', { onclick: async () => { const n = prompt('Save these colours as a house style named:'); if (n && await run('extract_palette', { assetId: pick.value, count: 16, saveAsHouseStyle: n })) { state.houseStyles = null; toast('Saved'); } } }, 'Save as house style'));
+        },
+      }, '🧪 Steal palette'),
+      el('button', {
+        onclick: async () => {
+          if (!pick.value) return;
+          const r = await run('check_pixel_style', { assetId: pick.value });
+          out.innerHTML = '';
+          if (r) out.append(el('p', {}, r.ok ? `✔ Clean pixel art: ${r.colorCount} colours, ${r.width}×${r.height}.` : `${r.colorCount} colours, ${r.width}×${r.height}:`), el('ul', { class: 'hint' }, r.issues.map((i) => el('li', {}, i))));
+        },
+      }, '✔ Style check'),
+      el('button', {
+        onclick: async () => {
+          if (!pick.value) return;
+          const r = await run('voxels_from_image', { assetId: pick.value });
+          if (r) { closeModal(); window.forgeSelect(r.id); window.forgeFrame(); toast(`${r.blocks} blocks`); }
+        },
+      }, '🧊 → 3D blocks'),
+      el('button', {
+        onclick: async () => {
+          if (!pick.value) return;
+          const a = state.library.images[pick.value];
+          const fw = Number(prompt(`Frame width in pixels (the picture is ${a.width}×${a.height}):`, String(a.height)));
+          if (!fw) return;
+          const r = await run('export_aseprite', { assetId: pick.value, frameWidth: fw, frameHeight: Number(prompt('Frame height:', String(fw))) || fw });
+          if (r) toast(`Saved ${r.path}`);
+        },
+      }, '◆ Aseprite file')),
     out);
 }
 

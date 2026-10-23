@@ -112,7 +112,7 @@ export const LIGHTING_PRESETS = {
   },
 };
 
-export const OBJECT_TYPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'capsule', 'lathe', 'extrude', 'text', 'rock', 'image', 'cutout', 'model', 'group'];
+export const OBJECT_TYPES = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'capsule', 'lathe', 'extrude', 'text', 'rock', 'image', 'cutout', 'model', 'voxels', 'group'];
 
 export const SHAPE_DEFAULTS = {
   box:      { width: 1, height: 1, depth: 1, bevel: 0.04, bevelSegments: 4 },
@@ -129,6 +129,7 @@ export const SHAPE_DEFAULTS = {
   image:    { assetId: null, width: 1, height: 1 },
   cutout:   { assetId: null, width: 1, height: 1, depth: 0.05, bevel: 0.006, threshold: 0.5 },
   model:    { assetId: null, size: 1 },
+  voxels:   { voxelSize: 0.1, voxels: [[0, 0, 0, 0]], palette: ['#c8a064'] },
   group:    {},
 };
 
@@ -140,6 +141,7 @@ export const SHAPE_NOTES = {
   text: 'fonts: helvetiker_regular, helvetiker_bold, optimer_regular, optimer_bold, gentilis_regular, gentilis_bold',
   rock: 'lumpy natural stone. roughness = bumpiness, flatten = flat bottom, sharpness 0 = smooth, 1 = faceted. Different seed = different rock',
   cutout: 'turns an image into a solid shape that follows its outline (transparent PNGs work best). threshold 0-1 decides what counts as background',
+  voxels: 'blocks on a grid (3D pixels): voxels = [[x, y, z, paletteIndex]], palette = colours, voxelSize = block size in m. y = 0 is the bottom layer. Edit with edit_voxels',
   model: 'a ready-made 3D model from the library (import_model or generate_3d). size = height in metres, 0 = original size. Keeps its own materials',
 };
 

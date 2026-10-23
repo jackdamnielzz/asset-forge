@@ -11,6 +11,7 @@ import { generatePattern } from './patterns.js';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { latheGeometry, extrudeGeometry, textGeometry, rockGeometry, cutoutGeometry, traceImage } from './shapes.js';
 import { hardenAlpha, quantize, pixelOutline, softOutline, seloutOutline, cleanupPixels } from './pixelart.js';
+import { voxelGeometry } from './voxels.js';
 import { sampleObject } from '/shared/animations.js';
 
 const CSG_OPS = { subtract: SUBTRACTION, union: ADDITION, intersect: INTERSECTION };
@@ -706,7 +707,7 @@ export class SceneView {
   async renderSprites({
     target, directions = 8, frameSize = 64, animations = [], frames = 1, elevation = 30, azimuthOffset = 0,
     pixelArt = true, colors = 24, palette, dither = 0, outline = '#16171b', outlineStyle = 'solid', cleanup = true,
-    pixelsPerMetre = null, groundShadow = false, maps = [],
+    pixelsPerMetre = null, groundShadow = false, maps = [], keepCanvas = false,
   }) {
     await this.whenReady();
     this.resetPose();
@@ -814,6 +815,7 @@ export class SceneView {
     const names = { 1: ['down'], 4: ['down', 'left', 'up', 'right'], 8: ['down', 'down_left', 'left', 'up_left', 'up', 'up_right', 'right', 'down_right'] }[directions];
     const def = anims[0].def;
     return {
+      canvas: keepCanvas ? color.c : undefined,
       png: color.c.toDataURL('image/png').split(',')[1],
       normal: out.normal ?? null,
       emission: out.emission ?? null,
@@ -826,6 +828,27 @@ export class SceneView {
         palette: usedPalette,
       },
     };
+  }
+
+  // Several objects, one frame each, packed into one atlas with a shared palette
+  // (prop sheets, isometric tiles). Same camera and scale for all of them.
+  async renderAtlas({ targets, frameSize = 64, columns, palette = null, colors = 32, ...sprite }) {
+    const cols = columns ?? Math.min(targets.length, 8);
+    const atlas = document.createElement('canvas');
+    atlas.width = cols * frameSize;
+    atlas.height = Math.ceil(targets.length / cols) * frameSize;
+    const ctx = atlas.getContext('2d', { willReadFrequently: true });
+    const cells = [];
+    for (const [i, target] of targets.entries()) {
+      const r = await this.renderSprites({ ...sprite, target, directions: 1, frameSize, palette: null, colors: 256, keepCanvas: true });
+      const x = (i % cols) * frameSize, y = Math.floor(i / cols) * frameSize;
+      ctx.drawImage(r.canvas, x, y);
+      cells.push({ id: target, name: this.data.objects[target]?.name ?? target, x, y, w: frameSize, h: frameSize });
+    }
+    const img = ctx.getImageData(0, 0, atlas.width, atlas.height);
+    const used = sprite.pixelArt === false ? null : quantize(img, colors, palette);
+    ctx.putImageData(img, 0, 0);
+    return { png: atlas.toDataURL('image/png').split(',')[1], meta: { frameSize, columns: cols, cells, palette: used } };
   }
 
   emissiveMeshes(root) {
@@ -1028,6 +1051,7 @@ export function buildGeometry(type, p, { lowpoly = false, uvScale = 0, objectSca
     case 'text': g = textGeometry(p, resource); break;
     case 'rock': g = rockGeometry({ ...p, detail: lowpoly ? Math.min(p.detail, 1) : p.detail, sharpness: lowpoly ? 1 : p.sharpness }); break;
     case 'cutout': g = resource ? cutoutGeometry(p, resource) : new THREE.PlaneGeometry(p.width, p.height); break;
+    case 'voxels': g = voxelGeometry(p); break;
     case 'cone': g = new THREE.ConeGeometry(p.radius, p.height, seg(p.segments, 10)); break;
     case 'torus': g = new THREE.TorusGeometry(p.radius, p.tube, seg(Math.max(8, Math.round(p.segments / 2)), 6), seg(p.segments * 2, 14)); break;
     case 'capsule': g = new THREE.CapsuleGeometry(p.radius, p.length, lowpoly ? 2 : 8, seg(p.segments, 8)); break;

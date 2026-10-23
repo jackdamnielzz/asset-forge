@@ -18,6 +18,7 @@ export function startMockAi(port, { png, glb }) {
     if (u.pathname.startsWith('/google/models/') && u.pathname.endsWith(':generateContent')) {
       return json({ candidates: [{ content: { parts: [{ text: 'here you go' }, { inlineData: { mimeType: 'image/png', data: png } }] } }] });
     }
+    if (u.pathname === '/pixellab/create-image-pixflux' || u.pathname === '/pixellab/image-to-pixelart') return json({ usage: { type: 'usd', usd: 0.01 }, image: { type: 'base64', base64: png, format: 'png' } });
     if (u.pathname === '/nanogpt/v1/images/generations') return json({ created: 1, data: [{ b64_json: png }], cost: 0.01 });
     if (u.pathname === '/nanogpt/generate-video') return json({ runId: 'vid_test1', id: 'vid_test1', status: 'pending' }, 202);
     if (u.pathname === '/nanogpt/video/status') {

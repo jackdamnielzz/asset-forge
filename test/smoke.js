@@ -148,10 +148,10 @@ try {
   const ai = await startMockAi(7796, { png: shot.image, glb: await fs.readFile(each.files[0]) });
   try {
     const before = await call('list_ai_services');
-    check(Object.keys(before).length === 4 && !before.openai.connected, 'lists AI services, none connected yet');
+    check(Object.keys(before).length === 5 && !before.openai.connected, 'lists AI services, none connected yet');
     const noKey = await fetch(`${BASE}/api/commands/generate_image`, { method: 'POST', body: JSON.stringify({ service: 'openai', prompt: 'a red apple' }) }).then((r) => r.json());
     check(!noKey.ok && /not connected/.test(noKey.error), 'explains how to connect a service');
-    for (const s of ['openai', 'google', 'nanogpt', 'fal']) await call('connect_ai_service', { service: s, key: `test-key-${s}`, baseUrl: `${ai.base}/${s}` });
+    for (const s of ['openai', 'google', 'nanogpt', 'pixellab', 'fal']) await call('connect_ai_service', { service: s, key: `test-key-${s}`, baseUrl: `${ai.base}/${s}` });
     const status = await call('list_ai_services');
     check(status.google.connected && !JSON.stringify(status).includes('test-key'), 'keys are saved but never sent back');
     const o1 = await call('generate_image', { service: 'openai', prompt: 'a red apple icon', transparent: true });
@@ -163,6 +163,9 @@ try {
     const n1 = await call('generate_image', { service: 'nanogpt', model: 'flux-kontext', prompt: 'make it night', references: [g1.assetId], transparent: true });
     const nreq = ai.seen.find((r) => r.url === '/nanogpt/v1/images/generations');
     check(n1.assetId && nreq.body.imageDataUrl.startsWith('data:image/png;base64,'), 'NanoGPT: image-to-image request');
+    const pl = await call('generate_image', { service: 'pixellab', prompt: 'a tiny knight', size: '48x48', transparent: true, references: [o1.assetId] });
+    const plreq = ai.seen.find((r) => r.url === '/pixellab/create-image-pixflux');
+    check(pl.assetId && plreq.headers.authorization === 'Bearer test-key-pixellab' && plreq.body.image_size.width === 48 && plreq.body.no_background && plreq.body.init_image.type === 'base64', 'PixelLab: pixflux request with a starting image');
     const vid = await call('generate_video', { service: 'nanogpt', prompt: 'a campfire', image: n1.assetId, duration: 5 });
     check(vid.videoId && ai.seen.some((r) => r.url.startsWith('/nanogpt/video/status?requestId=vid_test1')), 'NanoGPT: video job is polled and saved');
     const m3d = await call('generate_3d', { service: 'fal', image: o1.assetId, size: 1.2 });
@@ -234,6 +237,58 @@ try {
   check(!!styled.assetId, 'pixel tools use the house-style palette');
   await call('save_house_style', { name: 'my_style' });
   check(!!(await call('list_house_styles')).my_style?.custom, 'own house styles are saved');
+
+  // Phase 7: effects, backgrounds, colour tools, style check, pixel edits, Aseprite, sheets, voxels
+  for (const type of ['explosion', 'fire', 'smoke', 'magic', 'sparks', 'glitter', 'heal', 'lightning']) {
+    const fx = await call('make_effect', { type, size: 32 });
+    if (type === 'fire') check(fx.columns === 8 && fx.loop && fx.files.sheet.endsWith('fire.png'), 'effects render as sprite strips');
+  }
+  const bg = await call('make_parallax', { theme: 'mountains', time: 'sunset', width: 256, height: 144 });
+  check(bg.layers.length >= 4 && bg.scrollSpeeds[0] === 0, 'parallax background with layers and scroll speeds');
+  await fs.copyFile(bg.preview, path.join(ROOT, 'test', 'last-parallax.png'));
+  const pixelPic = await call('pixelate_image', { assetId: (await call('list_images'))[0].id, size: 32, palette: 'pico8' });
+  const pal = await call('extract_palette', { assetId: pixelPic.assetId, count: 8, saveAsHouseStyle: 'stolen' });
+  check(pal.colors.length > 2 && (await call('list_house_styles')).stolen, 'steals a palette and saves it as a house style');
+  const variants = await call('make_palette_variants', { assetId: pixelPic.assetId, count: 3 });
+  const swapped = await call('recolor_image', { assetId: pixelPic.assetId, map: { [pal.colors[0]]: '#ff00ff' } });
+  check(variants.variants.length === 3 && swapped.assetId, 'colour variants and colour swaps');
+  const painted = await call('paint_pixels', { assetId: pixelPic.assetId, pixels: [[0, 0, '#ff0000'], [1, 0, null]], fills: [[5, 5, '#00ff00']] });
+  check(!!painted.assetId, 'paints pixels and flood-fills');
+  const style = await call('check_pixel_style', { assetId: shot && (await call('list_images'))[0].id });
+  check(!style.ok && style.issues.length > 0, 'pixel style check flags a non-pixel picture');
+  const cleanStyle = await call('check_pixel_style', { assetId: pixelPic.assetId, palette: 'pico8' });
+  check(cleanStyle.semiTransparent === 0 && cleanStyle.offPalette === 0, 'pixel style check passes clean pixel art');
+  const heroImg = await call('import_image', { path: heroSprites.files.color, name: 'hero' });
+  const ase = await call('export_aseprite', { assetId: heroImg.assetId, frameWidth: 32, rowNames: heroSprites.rowNames });
+  const aseBuf = await fs.readFile(ase.path);
+  check(aseBuf.readUInt16LE(4) === 0xa5e0 && aseBuf.readUInt16LE(6) === 32 && aseBuf.readUInt32LE(0) === aseBuf.length && ase.tags[2] === heroSprites.rowNames[2], 'Aseprite file with frames and tags');
+  await call('clear_scene');
+  const kit2 = await call('make_level_kit', { style: 'cottage' });
+  const iso = await call('make_iso_tiles', { group: kit2.id, tileWidth: 48 });
+  check(iso.cells.length === 6 && iso.files.sheet, 'isometric tiles from a level kit');
+  await fs.copyFile(iso.files.sheet, path.join(ROOT, 'test', 'last-iso.png'));
+  await call('clear_scene');
+  await call('make_barrel', { position: [-1, 0, 0] });
+  await call('make_crystal', { position: [1, 0, 0] });
+  const props = await call('make_prop_sheet', { frameSize: 32, palette: 'endesga32' });
+  check(props.cells.length === 2, 'prop sheet with shared palette');
+  const vox = await call('add_object', { type: 'voxels', params: { voxelSize: 0.1, voxels: [[0, 0, 0, 0], [1, 0, 0, 1]], palette: ['#aa4422', '#2266aa'] } });
+  await call('edit_voxels', { id: vox.id, add: [[0, 1, 0, '#ffcc00']], remove: [[1, 0, 0]] });
+  const voxObj = await call('get_object', { id: vox.id });
+  check(voxObj.params.voxels.length === 2 && voxObj.params.palette.includes('#ffcc00'), 'edits voxels (add, remove, new colour)');
+  const fromPic = await call('voxels_from_image', { assetId: pixelPic.assetId, depth: 1 });
+  check(fromPic.blocks > 50, 'pixel picture → 3D blocks');
+  // a tiny MagicaVoxel file: 2 voxels, palette with 2 colours
+  const chunk = (id, content, children = Buffer.alloc(0)) => { const h = Buffer.alloc(12); h.write(id, 0, 'ascii'); h.writeUInt32LE(content.length, 4); h.writeUInt32LE(children.length, 8); return Buffer.concat([h, content, children]); };
+  const sizeC = Buffer.alloc(12); sizeC.writeUInt32LE(2, 0); sizeC.writeUInt32LE(2, 4); sizeC.writeUInt32LE(2, 8);
+  const xyzi = Buffer.from([2, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 2]);
+  const rgba = Buffer.alloc(1024); rgba.set([255, 0, 0, 255], 0); rgba.set([0, 0, 255, 255], 4);
+  const voxFile = Buffer.concat([Buffer.from('VOX '), Buffer.from([150, 0, 0, 0]), chunk('MAIN', Buffer.alloc(0), Buffer.concat([chunk('SIZE', sizeC), chunk('XYZI', xyzi), chunk('RGBA', rgba)]))]);
+  const vimp = await call('import_vox', { data: voxFile.toString('base64'), name: 'tiny' });
+  const vo = await call('get_object', { id: vimp.id });
+  check(vimp.blocks === 2 && vo.params.palette.includes('#ff0000') && vo.params.voxels.some((v) => v[1] === 1), 'imports a MagicaVoxel .vox (Z up becomes Y up)');
+  const voxShot = await call('render_preview', { width: 256, height: 256 });
+  check(Buffer.from(voxShot.image, 'base64').length > 5000, 'voxels render');
 
   await call('open_project', { name: 'untitled' });
 

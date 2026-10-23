@@ -36,6 +36,9 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
 - Generators get a `recipe` automatically (set in `Engine.execute` for category "generators"). Recipes, variations,
   quality check and house styles are in `src/core/commands/superpowers.js`; the quality check measures via the
   `inspect` bridge request. Saved recipes/styles live in `workspace/library/recipes|styles/`.
+- Phase 7: 2D effects and parallax in `web/js/fx2d.js`, pixel editor `web/js/pixeleditor.js` (saves via import_image),
+  voxel mesh + click picking `web/js/voxels.js`, `.vox` reader `src/core/vox.js`, Aseprite writer `src/core/aseprite.js`,
+  commands in `src/core/commands/pixel2d.js` and `voxels.js`. Picture operations go through the `image_op` bridge request.
 - For development, run a second engine (`FORGE_PORT=7791`, `FORGE_WORKSPACE` in a temp folder) so the user's
   window on 7777 is not disturbed.
 

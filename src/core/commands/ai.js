@@ -84,7 +84,7 @@ export function register(registry, { z, engine }) {
       progress('generate_image')(`asking ${args.service}…`);
       const buf = await engine.providers.image(args.service, { prompt: args.prompt, model: args.model, size: args.size, transparent: args.transparent, refs });
       let asset = await storeImage(engine, buf, args.name ?? args.prompt.slice(0, 40), { madeBy: { service: args.service, model: args.model ?? null, prompt: args.prompt } });
-      if (args.transparent && args.service !== 'openai') {
+      if (args.transparent && !['openai', 'pixellab'].includes(args.service)) {
         const cut = await processImage('remove_background', asset.id, { tolerance: 0.12 }, asset.name);
         asset = engine.library.images[cut.assetId];
         asset.madeBy = { service: args.service, model: args.model ?? null, prompt: args.prompt };

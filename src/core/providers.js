@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CommandError } from './registry.js';
+import { imageInfo } from './images.js';
 
 // Connections to outside AI services that make images, videos and 3D models.
 // API keys live in workspace/secrets.json (never in git) or in environment variables,
@@ -33,6 +34,14 @@ export const SERVICES = {
       video: ['veo2-video', 'kling-video-v2', 'kling-v21-pro', 'wan-video-image-to-video', 'seedance-lite-video'],
     },
     signup: 'https://nano-gpt.com/api',
+  },
+  pixellab: {
+    name: 'PixelLab (AI pixel art)',
+    env: 'PIXELLAB_API_KEY',
+    baseUrl: 'https://api.pixellab.ai/v2',
+    can: ['image'],
+    models: { image: ['pixflux', 'image-to-pixelart'] },
+    signup: 'https://www.pixellab.ai/pixellab-api',
   },
   fal: {
     name: 'fal.ai (photo or text → 3D model)',
@@ -94,6 +103,7 @@ export class Providers {
     const c = await this.ready(service, 'image');
     if (service === 'openai') return openaiImage(c, { prompt, model: model ?? c.def.models.image[0], size, transparent, refs });
     if (service === 'google') return googleImage(c, { prompt, model: model ?? c.def.models.image[0], size, transparent, refs });
+    if (service === 'pixellab') return pixellabImage(c, { prompt, model: model ?? c.def.models.image[0], size, transparent, refs });
     return nanogptImage(c, { prompt, model: model ?? c.def.models.image[0], size, refs });
   }
 
@@ -182,6 +192,28 @@ async function googleImage(c, { prompt, model, size, transparent, refs }) {
   }
   const text = (res.candidates?.[0]?.content?.parts ?? []).map((p) => p.text).filter(Boolean).join(' ');
   throw new CommandError(`Gemini returned no image${text ? `: ${text.slice(0, 200)}` : ''}`);
+}
+
+// PixelLab: "pixflux" makes pixel art from text (a reference becomes its starting image);
+// "image-to-pixelart" turns the reference picture itself into pixel art.
+async function pixellabImage(c, { prompt, model, size, transparent, refs }) {
+  const [w, h] = (size && /^\d+x\d+$/.test(size) ? size : '64x64').split('x').map(Number);
+  const b64 = (r) => ({ type: 'base64', base64: r.data, format: r.mime === 'image/jpeg' ? 'jpeg' : 'png' });
+  let res;
+  if (model === 'image-to-pixelart') {
+    if (!refs.length) throw new CommandError('image-to-pixelart needs a reference picture (references or referenceRender).');
+    const info = imageInfo(Buffer.from(refs[0].data, 'base64'));
+    res = await api(`${c.baseUrl}/image-to-pixelart`, {
+      method: 'POST', headers: bearer(c.key),
+      body: { image: b64(refs[0]), image_size: { width: info?.width ?? 512, height: info?.height ?? 512 }, output_size: { width: w, height: h } },
+    });
+  } else {
+    const body = { description: prompt, image_size: { width: w, height: h }, no_background: !!transparent };
+    if (refs.length) body.init_image = b64(refs[0]);
+    res = await api(`${c.baseUrl}/create-image-pixflux`, { method: 'POST', headers: bearer(c.key), body });
+  }
+  if (res.image?.base64) return Buffer.from(res.image.base64, 'base64');
+  throw new CommandError('PixelLab returned no image.');
 }
 
 async function nanogptImage(c, { prompt, model, size, refs }) {

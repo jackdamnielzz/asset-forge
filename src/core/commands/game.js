@@ -181,7 +181,7 @@ export function register(registry, { z, engine }) {
 
 // Godot 4 SpriteFrames resource: one animation per sheet row, frames cut from the sheet
 // with AtlasTextures. With a normal map, frames use a CanvasTexture so 2D lights work.
-function spriteFramesTres(meta, colorPath, normalPath) {
+export function spriteFramesTres(meta, colorPath, normalPath) {
   const ext = [`[ext_resource type="Texture2D" path="${colorPath}" id="1_color"]`];
   const subs = [];
   let atlas = 'ExtResource("1_color")';

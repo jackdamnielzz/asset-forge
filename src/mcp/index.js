@@ -31,7 +31,10 @@ How to make beautiful assets:
    Godot project; make_level_kit builds snapping floor/wall/door/window/pillar/stairs pieces.
    Pixel art: make_character (with idle/walk/run/attack/jump), render_sprites with palette (list_palettes), dither,
    outlineStyle "selout", maps ["normal"] and project (Godot SpriteFrames); make_tileset (autotiles + Godot TileSet);
-   pixelate_image turns any picture into pixel art.
+   pixelate_image turns any picture into pixel art. More 2D: make_effect (explosion, fire, smoke, magic, sparks,
+   glitter, heal, lightning), make_parallax, make_prop_sheet, make_iso_tiles, paint_pixels, recolor_image,
+   make_palette_variants, extract_palette, check_pixel_style, export_aseprite. Voxels: add_object type "voxels",
+   edit_voxels, voxels_from_image, import_vox.
    AI services (cost the user money, ask first): generate_image (openai, google Nano Banana, nanogpt), generate_video
    (nanogpt), generate_3d (fal). If you have your own image tools, make the picture there and import_image it.
    Free picture tools: remove_background, make_seamless, video_to_sprites, import_model (.glb).
