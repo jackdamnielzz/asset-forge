@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MATERIAL_PRESETS, SHAPE_DEFAULTS, PATTERNS, FONTS } from '../../shared/presets.js';
+import { MATERIAL_PRESETS, SHAPE_DEFAULTS, PATTERNS, FONTS, OBJECT_TYPES } from '../../shared/presets.js';
 import { CommandError } from '../registry.js';
 
 export const vec3 = z.array(z.number()).length(3);
@@ -125,4 +125,39 @@ function checkPoints(points, min, what) {
 
 export function toScale(s) {
   return typeof s === 'number' ? [s, s, s] : s;
+}
+
+// Check a scene that comes from outside (load_scene, a project file, an old version) before using it:
+// every id in order must exist, parents must exist without loops, and every shape needs a material.
+// Small gaps are filled in; things that cannot be repaired give a clear error.
+export function checkScene(scene) {
+  const objects = scene.objects ?? {};
+  if (typeof objects !== 'object' || Array.isArray(objects)) throw new CommandError('scene.objects must be an object of { id: object }.');
+  const ids = Object.keys(objects);
+  const order = Array.isArray(scene.order) ? scene.order.filter((id, i, all) => objects[id] && all.indexOf(id) === i) : [];
+  for (const id of ids) if (!order.includes(id)) order.push(id);
+  const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
+  for (const id of ids) {
+    const o = objects[id];
+    if (!o || typeof o !== 'object') throw new CommandError(`Object "${id}" is not an object.`);
+    if (!OBJECT_TYPES.includes(o.type)) throw new CommandError(`Object "${id}" has unknown type "${o.type}". Types: ${OBJECT_TYPES.join(', ')}`);
+    o.id = id;
+    o.name = typeof o.name === 'string' ? o.name : id;
+    o.parent = o.parent && objects[o.parent] ? o.parent : null;
+    if (!isVec3(o.position)) o.position = [0, 0, 0];
+    if (!isVec3(o.rotation)) o.rotation = [0, 0, 0];
+    o.scale = isVec3(o.scale) ? o.scale : typeof o.scale === 'number' ? toScale(o.scale) : [1, 1, 1];
+    if (!o.params || typeof o.params !== 'object') o.params = structuredClone(SHAPE_DEFAULTS[o.type]);
+    if (o.type === 'group') o.material = null;
+    else if (!o.material || typeof o.material !== 'object') o.material = defaultMaterial();
+    if (o.booleans !== undefined) o.booleans = Array.isArray(o.booleans) ? o.booleans.filter((b) => b && objects[b.id]) : [];
+  }
+  for (const id of ids) {
+    const seen = new Set([id]);
+    for (let p = objects[id].parent; p; p = objects[p].parent) {
+      if (seen.has(p)) throw new CommandError(`Objects "${[...seen].join('", "')}" are inside each other in a loop.`);
+      seen.add(p);
+    }
+  }
+  return { ...scene, objects, order, animations: scene.animations && typeof scene.animations === 'object' ? scene.animations : {} };
 }

@@ -203,10 +203,16 @@ export function spriteFramesTres(meta, colorPath, normalPath) {
 }
 
 export async function exportDir(engine, folder) {
-  const parts = String(folder).split(/[\\/]+/).filter(Boolean).map(safeName);
-  const dir = path.join(engine.paths.exports, ...parts);
+  const dir = path.join(engine.paths.exports, ...folderParts(folder));
   await fs.mkdir(dir, { recursive: true });
   return dir;
+}
+
+// A folder inside exports or a Godot project: "a/b" is fine, ".." (going up and out) is not.
+function folderParts(folder) {
+  const parts = String(folder).split(/[\\/]+/).filter(Boolean).map(safeName);
+  if (parts.some((p) => /^\.+$/.test(p))) throw new CommandError('folder must stay inside its base folder: no "." or ".." parts.');
+  return parts;
 }
 
 export async function godotDir(project, folder) {
@@ -216,8 +222,7 @@ export async function godotDir(project, folder) {
   } catch {
     throw new CommandError(`"${root}" is not a Godot project (no project.godot found).`);
   }
-  const parts = String(folder).split(/[\\/]+/).filter(Boolean).map(safeName);
-  const dir = path.join(root, ...parts);
+  const dir = path.join(root, ...folderParts(folder));
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }

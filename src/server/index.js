@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { Engine } from '../core/engine.js';
-import { CommandError } from '../core/registry.js';
+import { CommandError, AccessError } from '../core/registry.js';
 import { launchHeadlessRenderer, killStaleRenderer } from './headless.js';
-import { createAccess, LOGIN_PAGE } from './access.js';
+import { createAccess, commandLimit, LOGIN_PAGE } from './access.js';
 import * as docs from '../core/docs.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -43,6 +43,7 @@ const engine = new Engine({
   pluginDirs: [path.join(ROOT, 'plugins')],
 });
 await engine.init();
+engine.guard = commandLimit;
 const RENDERER_PID = path.join(engine.workspace, '.renderer', `${PORT}.pid`);
 await fs.mkdir(path.dirname(RENDERER_PID), { recursive: true });
 killStaleRenderer(RENDERER_PID);
@@ -94,10 +95,11 @@ async function ensureRenderer() {
 engine.bridge = {
   async request(kind, opts) {
     const client = await ensureRenderer();
+    if (!client) throw new CommandError('The renderer went away while starting; try again.');
     const reqId = ++reqCounter;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { pending.delete(reqId); reject(new CommandError(`${kind} timed out`)); }, 90_000);
-      pending.set(reqId, { resolve, reject, timer });
+      pending.set(reqId, { resolve, reject, timer, client });
       client.ws.send(JSON.stringify({ type: 'request', reqId, kind, opts, scene: engine.scene }));
     });
   },
@@ -161,10 +163,8 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       let args;
       try { args = body.length ? JSON.parse(body) : {}; } catch { return json(res, 400, { ok: false, error: 'Body must be JSON' }); }
-      const limit = access.commandAllowed(req, name, args);
-      if (limit) return json(res, 403, { ok: false, error: limit });
       try {
-        const result = await engine.execute(name, args, { source: req.headers['x-forge-source'] ?? 'http' });
+        const result = await engine.execute(name, args, { source: req.headers['x-forge-source'] ?? 'http', remote: access.isRemote(req) });
         if (url.searchParams.get('format') === 'png' && result?.image) {
           res.writeHead(200, { 'Content-Type': 'image/png' });
           return res.end(Buffer.from(result.image, 'base64'));
@@ -174,7 +174,7 @@ const server = http.createServer(async (req, res) => {
         const known = err instanceof CommandError;
         if (!known) console.error(err);
         engine.emit('log', { command: name, source: req.headers['x-forge-source'] ?? 'http', ok: false, error: err.message, time: Date.now() });
-        return json(res, known ? 400 : 500, { ok: false, error: err.message });
+        return json(res, err instanceof AccessError ? 403 : known ? 400 : 500, { ok: false, error: err.message });
       }
     }
 
@@ -196,7 +196,12 @@ const server = http.createServer(async (req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
-  const denied = new URL(req.url, URL_BASE).pathname !== '/ws' ? [404, 'Not found'] : access.check(req);
+  let denied;
+  try {
+    denied = new URL(req.url, URL_BASE).pathname !== '/ws' ? [404, 'Not found'] : access.check(req);
+  } catch {
+    denied = [400, 'Bad request'];
+  }
   if (denied) {
     socket.end(`HTTP/1.1 ${denied[0] === 302 ? 401 : denied[0]} Denied\r\nConnection: close\r\n\r\n`);
     return;
@@ -215,14 +220,23 @@ wss.on('connection', (ws) => {
       ws.send(JSON.stringify({ type: 'hello', scene: engine.scene, library: engine.library, plugins: engine.plugins, version: VERSION }));
     } else if (msg.type === 'response') {
       const p = pending.get(msg.reqId);
-      if (!p) return;
+      if (!p || p.client !== client) return;
       pending.delete(msg.reqId);
       clearTimeout(p.timer);
       if (msg.ok) p.resolve(msg.data);
       else p.reject(new CommandError(msg.error));
     }
   });
-  ws.on('close', () => clients.delete(client));
+  ws.on('close', () => {
+    clients.delete(client);
+    // requests this renderer was still working on will never be answered
+    for (const [reqId, p] of pending) {
+      if (p.client !== client) continue;
+      pending.delete(reqId);
+      clearTimeout(p.timer);
+      p.reject(new CommandError('The renderer closed before finishing; try again.'));
+    }
+  });
 });
 
 server.on('error', (err) => {

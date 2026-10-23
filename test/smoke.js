@@ -24,6 +24,12 @@ async function call(name, args = {}) {
   return body.result;
 }
 
+// For calls that are expected to fail: returns { status, ok, error }.
+async function attempt(name, args = {}, base = BASE, headers = {}) {
+  const res = await fetch(`${base}/api/commands/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(args) });
+  return { status: res.status, ...(await res.json()) };
+}
+
 function check(cond, msg) {
   if (!cond) throw new Error(`FAILED: ${msg}`);
   console.log(`  ok  ${msg}`);
@@ -197,6 +203,9 @@ try {
   check(!!seam.assetId, 'photo → seamless texture');
   const imported = await call('import_model', { path: each.files[1], size: 2 });
   check(!!imported.objectId, 'imports a .glb model');
+  const modelBox = await call('add_object', { type: 'box' });
+  const modelCut = await attempt('cut_object', { target: imported.objectId, cutter: modelBox.id });
+  check(!modelCut.ok && /imported models/.test(modelCut.error), 'imported models cannot be cut (clear message)');
 
   // Phase 5b: pixel art — character, sprites with palette/selout/normal map, tileset, Godot resources
   await call('clear_scene');
@@ -302,6 +311,10 @@ try {
   const vimp = await call('import_vox', { data: voxFile.toString('base64'), name: 'tiny' });
   const vo = await call('get_object', { id: vimp.id });
   check(vimp.blocks === 2 && vo.params.palette.includes('#ff0000') && vo.params.voxels.some((v) => v[1] === 1), 'imports a MagicaVoxel .vox (Z up becomes Y up)');
+  // a damaged file that claims 4 billion voxels must give an error, not crash the engine
+  const liar = Buffer.from(voxFile); liar.writeUInt32LE(0xffffffff, voxFile.indexOf('XYZI') + 12);
+  const badVox = await attempt('import_vox', { data: liar.toString('base64') });
+  check(badVox.status === 400 && /damaged/.test(badVox.error) && (await call('get_scene')).objects[vimp.id], 'damaged .vox files give a clear error');
   const voxShot = await call('render_preview', { width: 256, height: 256 });
   check(Buffer.from(voxShot.image, 'base64').length > 5000, 'voxels render');
 
@@ -375,6 +388,22 @@ try {
   const list = await call('list_projects');
   check(list.projects.includes('untitled') && list.current === 'second', 'projects save and switch');
 
+  // save as: never silently overwrite another project; undo afterwards stays in the copy
+  await call('add_object', { type: 'sphere' });
+  const taken = await attempt('save_project_as', { name: 'untitled' });
+  check(!taken.ok && /already exists/.test(taken.error), 'save_project_as refuses a name that is taken');
+  await call('save_project_as', { name: 'third' });
+  await call('undo');
+  check((await call('list_projects')).current === 'third', 'undo after save_project_as stays in the new project');
+  await call('add_object', { type: 'box' });
+  const escape = await attempt('make_icons', { folder: '../../escape' });
+  check(!escape.ok && /inside its base folder/.test(escape.error), 'export folders cannot go up and out of exports');
+  const fixed = await call('load_scene', { scene: { objects: { a: { type: 'box', parent: 'gone', material: null } }, order: ['a', 'missing'] } });
+  const fixedScene = await call('get_scene');
+  check(fixed.objects === 1 && fixedScene.objects.a.parent === null && fixedScene.objects.a.material, 'load_scene repairs missing references');
+  const badType = await attempt('load_scene', { scene: { objects: { x: { type: '<img src=x>' } } } });
+  check(!badType.ok && /unknown type/.test(badType.error), 'load_scene refuses unknown object types');
+
   // A second engine that treats every caller as "another computer": password needed.
   const SHARE = 7792;
   const shareWs = await fs.mkdtemp(path.join(os.tmpdir(), 'forge-share-'));
@@ -398,6 +427,21 @@ try {
     check(fileRead.status === 403, 'shared engine: other computers cannot read files by path');
     const keys = await fetch(`${sb}/api/commands/connect_ai_service`, { method: 'POST', headers: bearer, body: JSON.stringify({ service: 'openai', baseUrl: 'https://evil.example' }) });
     check(keys.status === 403, 'shared engine: other computers cannot change AI service settings');
+    const wrapped = await attempt('run_batch', { commands: [{ command: 'connect_ai_service', args: { service: 'openai', baseUrl: 'https://evil.example' } }] }, sb, bearer);
+    const wrappedFile = await attempt('run_batch', { commands: [{ command: 'list_versions', args: { project: '../..' } }] }, sb, bearer);
+    check(wrapped.status === 403 && wrappedFile.status === 403, 'shared engine: run_batch cannot get around those limits');
+    const inside = await attempt('import_image', { url: `${sb}/web/icon-256.png` }, sb, bearer);
+    check(inside.status === 403 && /public/.test(inside.error), 'shared engine: other computers cannot make it download from this computer');
+    const rawStatus = (headers) => new Promise((resolve) => {
+      const r = http.request({ host: '127.0.0.1', port: SHARE, path: '/api/health', headers }, (res) => { res.resume(); resolve(res.statusCode); });
+      r.on('error', () => resolve(0));
+      r.end();
+    });
+    check((await rawStatus({ Host: `evil.example:${SHARE}`, Authorization: 'Bearer correct-horse-9' })) === 421, 'shared engine: unknown host names are refused (DNS rebinding)');
+    await rawStatus({ Host: `127.0.0.1:${SHARE}`, Origin: 'not a url', Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13' });
+    check((await rawStatus({ Host: `127.0.0.1:${SHARE}`, Authorization: 'Bearer correct-horse-9' })) === 200, 'shared engine: a broken Origin does not crash it');
+    for (let i = 0; i < 5; i++) await rawStatus({ Host: `127.0.0.1:${SHARE}`, Authorization: 'Bearer wrong-guess' });
+    check((await rawStatus({ Host: `127.0.0.1:${SHARE}`, Authorization: 'Bearer correct-horse-9' })) === 401, 'shared engine: 5 wrong passwords lock the API for a minute');
   } finally {
     shared.kill();
     await new Promise((r) => setTimeout(r, 500));

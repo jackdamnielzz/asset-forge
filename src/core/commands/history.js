@@ -1,4 +1,5 @@
 import { CommandError } from '../registry.js';
+import { checkScene } from './common.js';
 
 export function register(registry, { z, engine }) {
   registry.define({
@@ -34,7 +35,8 @@ export function register(registry, { z, engine }) {
     async handler({ id }) {
       let scene;
       try { scene = await engine.history.read(engine.scene.name, id); } catch { throw new CommandError(`No version "${id}". See list_versions.`); }
-      scene.name = engine.scene.name;
+      scene = checkScene({ ...scene, name: engine.scene.name });
+      delete scene._version;
       await engine.loadScene(scene);
       return { restored: id, objects: scene.order.length };
     },

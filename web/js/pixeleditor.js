@@ -126,7 +126,7 @@ export async function openPixelEditor({ asset, palette = [], el, openModal, clos
 
   const keys = (e) => {
     if (!document.body.contains(view)) return window.removeEventListener('keydown', keys);
-    if (e.target.matches('input')) return;
+    if (e.target.closest('input, select, textarea')) return;
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); if (undo.length) { data = undo.pop(); draw(); } }
     else if (k === 'b' || k === 'p') setTool('pencil');

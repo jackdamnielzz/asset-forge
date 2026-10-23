@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { CommandRegistry, CommandError } from './registry.js';
+import { CommandRegistry, CommandError, AccessError } from './registry.js';
 import { registerBuiltins } from './commands/index.js';
 import { DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '../shared/presets.js';
 import { Providers } from './providers.js';
@@ -63,7 +63,8 @@ export class Engine extends EventEmitter {
     const state = await readJson(path.join(this.workspace, 'state.json'));
     const last = state?.current ?? 'untitled';
     const loaded = await readJson(this.projectFile(last));
-    this.scene = loaded ?? emptyScene(last);
+    // the file name decides where it saves, even if the name inside the file differs (a copied file)
+    this.scene = loaded ? { ...loaded, name: safeName(last) } : emptyScene(last);
     // a dated copy of everything once a day (skipped for throwaway test workspaces)
     if (!process.env.FORGE_NO_BACKUP && (await this.history.lastBackupAge()) > 24 * 3600_000) {
       this.history.backup().catch((err) => console.error(`[backup] ${err.message}`));
@@ -92,6 +93,12 @@ export class Engine extends EventEmitter {
   // Every user-level action becomes exactly one undo step: the outermost command or
   // batch takes the snapshot, anything it runs inside is part of that same step.
   async execute(name, args = {}, meta = {}) {
+    // Callers from other computers are checked here, so commands run inside run_batch or a
+    // generator are checked too. `guard` is set by the server.
+    if (meta.remote && this.guard) {
+      const denied = await this.guard(name, args ?? {});
+      if (denied) throw new AccessError(denied);
+    }
     const def = this.registry.commands.get(name);
     const mutates = def?.mutates;
     const result = mutates
@@ -116,37 +123,48 @@ export class Engine extends EventEmitter {
   // another; AsyncLocalStorage tells a nested call apart from a concurrent one.
   async recorded(fn) {
     if (actionContext.getStore()) return fn();
-    const run = async () => {
+    return this.exclusive(async () => {
       const before = structuredClone(this.scene);
       try {
-        const result = await actionContext.run(true, fn);
-        this.undoStack.push(before);
-        if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
-        this.redoStack = [];
+        const result = await fn();
+        // a step that switched project (e.g. open_project inside a batch) starts a fresh history
+        if (before.name === this.scene.name) {
+          this.undoStack.push(before);
+          if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+          this.redoStack = [];
+        }
         return result;
       } catch (err) {
         this.scene = before;
         this.changed();
         throw err;
       }
-    };
+    });
+  }
+
+  // Run fn when no other change is running (undo, redo and project switches wait their turn too).
+  async exclusive(fn) {
+    if (actionContext.getStore()) return fn();
+    const run = () => actionContext.run(true, fn);
     const next = this._queue.then(run, run);
     this._queue = next.catch(() => {});
     return next;
   }
 
   undo() {
-    if (!this.undoStack.length) return false;
-    this.redoStack.push(this.scene);
-    this.scene = this.undoStack.pop();
-    this.changed();
-    return true;
+    return this.exclusive(() => this.step(this.undoStack, this.redoStack));
   }
 
   redo() {
-    if (!this.redoStack.length) return false;
-    this.undoStack.push(this.scene);
-    this.scene = this.redoStack.pop();
+    return this.exclusive(() => this.step(this.redoStack, this.undoStack));
+  }
+
+  step(from, to) {
+    if (!from.length) return false;
+    to.push(this.scene);
+    const name = this.scene.name;
+    // snapshots from before "save project as" still carry the old name; stay in this project
+    this.scene = { ...from.pop(), name };
     this.changed();
     return true;
   }
@@ -193,14 +211,16 @@ export class Engine extends EventEmitter {
     await fs.writeFile(path.join(this.paths.library, 'library.json'), JSON.stringify(this.library, null, 2));
   }
 
-  async loadScene(scene) {
-    await this.saveCurrent();
-    await this.history.save(this.scene, 'safety', 'before switching or loading');
-    this.scene = scene;
-    this.undoStack = [];
-    this.redoStack = [];
-    await this.saveCurrent();
-    this.changed();
+  loadScene(scene) {
+    return this.exclusive(async () => {
+      await this.saveCurrent();
+      await this.history.save(this.scene, 'safety', 'before switching or loading');
+      this.scene = scene;
+      this.undoStack = [];
+      this.redoStack = [];
+      await this.saveCurrent();
+      this.changed();
+    });
   }
 
   async render(opts) {

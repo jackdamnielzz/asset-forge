@@ -45,7 +45,11 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
   commands in `src/core/commands/pixel2d.js` and `voxels.js`. Picture operations go through the `image_op` bridge request.
 - Access control lives in `src/server/access.js`: same-origin + Host checks on every request and WebSocket upgrade,
   password (cookie session or Bearer) for non-local callers when sharing (`FORGE_HOST`, `FORGE_PASSWORD`), and no
-  path/project arguments or AI-key changes from other computers. `FORGE_TRUST_LOCAL=0` makes local callers log in (tests).
+  path/project arguments, private-network urls or AI-key changes from other computers. `FORGE_TRUST_LOCAL=0` makes
+  local callers log in (tests). Those per-command limits (`commandLimit`) run inside `Engine.execute` via `engine.guard`
+  for every call with `meta.remote`, so nested calls (run_batch, generators) are checked too: always pass `ctx.meta` on.
+- Scenes from outside (load_scene, project files, versions) go through `checkScene()` in `commands/common.js`.
+  Undo/redo and project switches go through `Engine.exclusive`, the same queue as changes.
 - Windows launcher: `scripts/launch.ps1` (hidden engine with `--idle-exit=10`, Edge/Chrome `--app` window),
   `scripts/install-shortcuts.ps1`, icon from `scripts/make-icon.js`. Asset library: `src/core/commands/library.js`.
 - For development, run a second engine (`FORGE_PORT=7791`, `FORGE_WORKSPACE` in a temp folder) so the user's

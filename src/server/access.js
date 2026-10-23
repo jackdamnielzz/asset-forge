@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import os from 'node:os';
+import net from 'node:net';
+import dns from 'node:dns/promises';
 
 // Who may use the engine.
 // - This computer may always, but only from Asset Forge's own pages or from tools that are not
@@ -19,13 +21,27 @@ export function createAccess({ port, host, password, trustLocal = true }) {
   const sessions = new Map(); // token -> expiry
   const failures = new Map(); // ip -> { count, until }
   const localNames = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
+  const hostName = (req) => String(req.headers.host).toLowerCase();
+  // When sharing, other computers reach us by this computer's addresses or name; any other
+  // host name is a website pointing its own name at us (DNS rebinding).
+  const sharedNames = () => new Set([
+    ...addressList().map((a) => `${a}:${port}`),
+    `${os.hostname().toLowerCase()}:${port}`, `${os.hostname().toLowerCase()}.local:${port}`,
+  ]);
 
-  const isLocal = (req) => trustLocal && LOOPBACK.has(req.socket.remoteAddress);
+  // "This computer" means a loopback connection that also used a local host name.
+  const isLocal = (req) => trustLocal && LOOPBACK.has(req.socket.remoteAddress) && localNames.has(hostName(req));
   const sameOrigin = (req) => {
     const origin = req.headers.origin;
-    return !origin || origin === 'null' ? !origin : new URL(origin).host === req.headers.host;
+    if (!origin || origin === 'null') return !origin;
+    try { return new URL(origin).host === req.headers.host; } catch { return false; }
   };
-  const hostAllowed = (req) => sharing || localNames.has(String(req.headers.host).toLowerCase());
+  const hostAllowed = (req) => localNames.has(hostName(req)) || (sharing && sharedNames().has(hostName(req)));
+  const lockedOut = (ip) => (failures.get(ip)?.until ?? 0) > Date.now();
+  const failed = (ip) => {
+    const count = (failures.get(ip)?.count ?? 0) + 1;
+    failures.set(ip, { count, until: count >= 5 ? Date.now() + 60_000 : 0 });
+  };
   const tokenOf = (req) => {
     const auth = req.headers.authorization;
     if (auth?.startsWith('Bearer ')) return { bearer: auth.slice(7) };
@@ -40,7 +56,14 @@ export function createAccess({ port, host, password, trustLocal = true }) {
   const authed = (req) => {
     if (isLocal(req)) return true;
     const t = tokenOf(req);
-    if (t.bearer) return passwordOk(t.bearer);
+    if (t.bearer) {
+      // the same limit as the log-in page: 5 wrong passwords lock this address for a minute
+      const ip = req.socket.remoteAddress;
+      if (lockedOut(ip)) return false;
+      if (passwordOk(t.bearer)) { failures.delete(ip); return true; }
+      failed(ip);
+      return false;
+    }
     const exp = t.session && sessions.get(t.session);
     return !!exp && exp > Date.now();
   };
@@ -54,20 +77,13 @@ export function createAccess({ port, host, password, trustLocal = true }) {
       if (!authed(req)) return page ? [302, '/login'] : [401, 'Password needed: open this address in a browser and log in, or send Authorization: Bearer <password>'];
       return null;
     },
-    // Extra limits for commands from other computers.
-    commandAllowed(req, name, args) {
-      if (isLocal(req)) return null;
-      if (LOCAL_ONLY_COMMANDS.has(name)) return `"${name}" only works on the computer running Asset Forge.`;
-      if (args && FILE_ARGS.some((k) => k in args)) return 'Working with files by path only works on the computer running Asset Forge; send data or url instead.';
-      return null;
-    },
+    // Callers that get the extra limits of commandLimit (the engine checks every command they run).
+    isRemote: (req) => !isLocal(req),
     async login(req, given) {
       const ip = req.socket.remoteAddress;
-      const f = failures.get(ip);
-      if (f && f.until > Date.now()) return { error: 'Too many wrong passwords; wait a minute.' };
+      if (lockedOut(ip)) return { error: 'Too many wrong passwords; wait a minute.' };
       if (!passwordOk(given)) {
-        const count = (f?.count ?? 0) + 1;
-        failures.set(ip, { count, until: count >= 5 ? Date.now() + 60_000 : 0 });
+        failed(ip);
         await new Promise((r) => setTimeout(r, 600));
         return { error: 'Wrong password.' };
       }
@@ -78,9 +94,48 @@ export function createAccess({ port, host, password, trustLocal = true }) {
     },
     addresses() {
       if (!sharing) return [];
-      return Object.values(os.networkInterfaces()).flat().filter((n) => n && n.family === 'IPv4' && !n.internal).map((n) => `http://${n.address}:${port}`);
+      return addressList().map((a) => `http://${a}:${port}`);
     },
   };
+}
+
+function addressList() {
+  return Object.values(os.networkInterfaces()).flat().filter((n) => n && n.family === 'IPv4' && !n.internal).map((n) => n.address);
+}
+
+// Extra limits for commands from other computers: null = allowed, otherwise the reason.
+// They cannot touch files by path, change AI settings, or make us download from this
+// computer or its local network.
+export async function commandLimit(name, args) {
+  if (LOCAL_ONLY_COMMANDS.has(name)) return `"${name}" only works on the computer running Asset Forge.`;
+  if (FILE_ARGS.some((k) => k in args)) return 'Working with files by path only works on the computer running Asset Forge; send data or url instead.';
+  if (typeof args.url === 'string' && !(await publicUrl(args.url))) {
+    return 'From another computer, url must be a public http(s) address (not this computer or its local network); send data instead.';
+  }
+  return null;
+}
+
+async function publicUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  try {
+    const found = await dns.lookup(u.hostname.replace(/^\[|\]$/g, ''), { all: true });
+    return found.length > 0 && found.every((a) => !privateAddress(a.address));
+  } catch {
+    return false;
+  }
+}
+
+function privateAddress(ip) {
+  const v4 = ip.replace(/^::ffff:/i, '');
+  if (net.isIPv4(v4)) {
+    const [a, b] = v4.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32)
+      || (a === 192 && b === 168) || (a === 100 && b >= 64 && b < 128) || a >= 224;
+  }
+  const s = ip.toLowerCase();
+  return s === '::' || s === '::1' || s.startsWith('fc') || s.startsWith('fd') || s.startsWith('fe80');
 }
 
 export const LOGIN_PAGE = (error = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

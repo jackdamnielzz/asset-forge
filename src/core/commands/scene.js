@@ -1,7 +1,7 @@
 import { LIGHTING_PRESETS, MATERIAL_PRESETS, PATTERNS, STYLES, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '../../shared/presets.js';
-import { CommandError } from '../registry.js';
+import { CommandError, AccessError } from '../registry.js';
 import { emptyScene } from '../engine.js';
-import { vec3, color } from './common.js';
+import { vec3, color, checkScene } from './common.js';
 
 export function register(registry, { z, engine }) {
   registry.define({
@@ -118,9 +118,8 @@ export function register(registry, { z, engine }) {
     async handler({ scene }) {
       await engine.history.save(engine.scene, 'safety', 'before loading a scene recipe');
       const base = emptyScene(engine.scene.name);
-      const next = { ...base, ...scene, name: engine.scene.name, environment: { ...base.environment, ...scene.environment } };
-      if (!next.order) next.order = Object.keys(next.objects ?? {});
-      engine.scene.objects = next.objects ?? {};
+      const next = checkScene({ ...base, ...scene, name: engine.scene.name, environment: { ...base.environment, ...scene.environment } });
+      engine.scene.objects = next.objects;
       engine.scene.order = next.order;
       engine.scene.environment = next.environment;
       engine.scene.camera = next.camera ?? base.camera;
@@ -134,7 +133,7 @@ export function register(registry, { z, engine }) {
     title: 'Undo',
     category: 'scene',
     description: 'Undo the last change.',
-    handler: () => ({ undone: engine.undo() }),
+    handler: async () => ({ undone: await engine.undo() }),
   });
 
   registry.define({
@@ -142,7 +141,7 @@ export function register(registry, { z, engine }) {
     title: 'Redo',
     category: 'scene',
     description: 'Redo the last undone change.',
-    handler: () => ({ redone: engine.redo() }),
+    handler: async () => ({ redone: await engine.redo() }),
   });
 
   registry.define({
@@ -163,7 +162,8 @@ export function register(registry, { z, engine }) {
           try {
             results.push(await engine.execute(step.command, resolveRefs(step.args ?? {}, results), ctx.meta));
           } catch (err) {
-            throw new CommandError(`Step ${i} (${step.command}) failed: ${err.message}`);
+            const Kind = err instanceof AccessError ? AccessError : CommandError;
+            throw new Kind(`Step ${i} (${step.command}) failed: ${err.message}`);
           }
         }
       });

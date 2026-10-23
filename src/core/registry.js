@@ -51,6 +51,8 @@ export class CommandRegistry {
 }
 
 export class CommandError extends Error {}
+// A command that the caller is not allowed to run (answered with HTTP 403).
+export class AccessError extends CommandError {}
 
 function toJsonSchema(schema) {
   const json = z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' });

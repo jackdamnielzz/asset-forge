@@ -103,6 +103,7 @@ export class SceneView {
 
   setLibrary(library) {
     this.library = library;
+    this.failedLoads?.clear(); // a changed library may have fixed a missing file: try again
   }
 
   get env() {
@@ -211,7 +212,7 @@ export class SceneView {
     if (node.modelKey === key) return;
     if (!gltf) {
       this.models ??= new Map();
-      this.track(`model:${asset.file}`, new GLTFLoader().loadAsync(`/library/models/${asset.file}`).then((g) => this.models.set(asset.file, g)));
+      this.track(`model:${asset.file}`, () => new GLTFLoader().loadAsync(`/library/models/${asset.file}`).then((g) => this.models.set(asset.file, g)));
       return;
     }
     node.modelKey = key;
@@ -235,7 +236,7 @@ export class SceneView {
     if (o.type === 'text') {
       const name = o.params.font;
       if (this.fonts.has(name)) return this.fonts.get(name);
-      this.track(`font:${name}`, new FontLoader().loadAsync(`/vendor/three/examples/fonts/${name}.typeface.json`).then((f) => this.fonts.set(name, f)));
+      this.track(`font:${name}`, () => new FontLoader().loadAsync(`/vendor/three/examples/fonts/${name}.typeface.json`).then((f) => this.fonts.set(name, f)));
       return null;
     }
     if (o.type === 'cutout') {
@@ -243,18 +244,22 @@ export class SceneView {
       if (!asset) return null;
       const key = `${asset.file}|${o.params.threshold}`;
       if (this.outlines.has(key)) return this.outlines.get(key);
-      this.track(`outline:${key}`, loadImage(`/library/images/${asset.file}`).then((img) => this.outlines.set(key, traceImage(img, o.params.threshold))));
+      this.track(`outline:${key}`, () => loadImage(`/library/images/${asset.file}`).then((img) => this.outlines.set(key, traceImage(img, o.params.threshold))));
       return null;
     }
     return undefined;
   }
 
-  track(key, promise) {
+  // start() begins the load; it is only called when this key is not loading already and has
+  // not failed before (a failed load is not retried until the library changes, so a missing
+  // file cannot cause an endless loop of retries that keeps renders waiting).
+  track(key, start) {
     this.loading ??= new Set();
-    if (this.loading.has(key)) return;
+    this.failedLoads ??= new Set();
+    if (this.loading.has(key) || this.failedLoads.has(key)) return;
     this.loading.add(key);
-    const p = promise
-      .catch((err) => console.error(`load failed (${key}): ${err.message}`))
+    const p = Promise.resolve().then(start)
+      .catch((err) => { this.failedLoads.add(key); console.error(`load failed (${key}): ${err.message}`); })
       .finally(() => { this.loading.delete(key); if (this.data) this.update(this.data); });
     this.pendingLoads.add(p);
     p.finally(() => this.pendingLoads.delete(p));
@@ -267,9 +272,10 @@ export class SceneView {
     for (const id of data.order) {
       const o = data.objects[id];
       const node = this.nodes.get(id);
-      if (!node || o.type === 'group') continue;
+      // groups and imported models are containers without one shape of their own to cut
+      if (!node || !node.base) continue;
       if (!o.booleans?.length) {
-        if (node.csgKey) { node.obj.geometry.dispose(); node.obj.geometry = node.base; node.csgKey = null; this.syncOutline(node, o); }
+        if (node.csgKey) { if (node.obj.geometry !== node.base) node.obj.geometry.dispose(); node.obj.geometry = node.base; node.csgKey = null; this.syncOutline(node, o); }
         continue;
       }
       const inv = node.obj.matrixWorld.clone().invert();
@@ -280,7 +286,7 @@ export class SceneView {
       }).filter(Boolean);
       const key = JSON.stringify([node.geoKey, parts.map((p) => [p.op, p.key, p.rel.elements.map((e) => Math.round(e * 1e4))])]);
       if (key === node.csgKey) continue;
-      if (node.csgKey) node.obj.geometry.dispose();
+      if (node.csgKey && node.obj.geometry !== node.base) node.obj.geometry.dispose();
       try {
         node.obj.geometry = csg(node.base, parts);
       } catch (err) {

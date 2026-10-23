@@ -65,7 +65,10 @@ export class Providers {
   async setKey(service, key, baseUrl) {
     if (!SERVICES[service]) throw new CommandError(`Unknown service "${service}". Choose: ${Object.keys(SERVICES).join(', ')}`);
     const all = await this.load();
-    all[service] = { ...(all[service] ?? {}), ...(key !== undefined ? { key } : {}), ...(baseUrl !== undefined ? { baseUrl } : {}) };
+    const before = all[service] ?? {};
+    // a key belongs to its address: a new address without a new key must not receive the old key
+    const keep = baseUrl === undefined || baseUrl === before.baseUrl ? before : { ...before, key: undefined };
+    all[service] = { ...keep, ...(key !== undefined ? { key } : {}), ...(baseUrl !== undefined ? { baseUrl } : {}) };
     if (all[service].key === '' || all[service].key === null) delete all[service].key;
     await fs.writeFile(this.file, JSON.stringify(all, null, 2));
   }

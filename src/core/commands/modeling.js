@@ -62,6 +62,7 @@ export function register(registry, { z, engine }) {
       const c = engine.getObject(cutter);
       if (target === cutter) throw new CommandError('An object cannot cut itself.');
       if (t.type === 'group' || c.type === 'group') throw new CommandError('Cut/combine works on shapes, not groups.');
+      if (t.type === 'model' || c.type === 'model') throw new CommandError('Cut/combine works on shapes, not imported models.');
       t.booleans = (t.booleans ?? []).filter((b) => b.id !== cutter);
       t.booleans.push({ id: cutter, op });
       if (hideCutter) c.visible = false;

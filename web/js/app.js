@@ -267,6 +267,8 @@ function startWindow() {
 
   window.addEventListener('keydown', (e) => {
     if (e.target.closest('input, select, textarea')) return;
+    // while a pop-up is open (e.g. the pixel editor), keys belong to it, not to the 3D scene behind it
+    if (!document.getElementById('modal').hidden) return;
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); run(e.shiftKey ? 'redo' : 'undo'); }
     else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); run('redo'); }
@@ -359,8 +361,9 @@ function renderOutliner() {
       const li = document.createElement('li');
       li.className = (id === state.selected || state.multi.has(id) ? 'selected ' : '') + (o.visible === false ? 'hidden-obj' : '');
       li.style.paddingLeft = `${6 + depth * 14}px`;
-      li.innerHTML = `<button class="eye" title="Show/hide">${o.visible === false ? '◌' : '●'}</button><span class="label"></span><span class="type">${o.cutterFor ? '✂ cutter' : o.type}</span>`;
+      li.innerHTML = `<button class="eye" title="Show/hide">${o.visible === false ? '◌' : '●'}</button><span class="label"></span><span class="type"></span>`;
       li.querySelector('.label').textContent = o.name;
+      li.querySelector('.type').textContent = o.cutterFor ? '✂ cutter' : o.type;
       li.onclick = (e) => window.forgeSelect(id, e.ctrlKey || e.shiftKey);
       li.querySelector('.eye').onclick = (e) => { e.stopPropagation(); run('update_object', { id, visible: o.visible === false }); };
       ul.append(li);

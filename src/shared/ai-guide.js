@@ -59,7 +59,8 @@ export const API_NOTES = `HOW TO CALL
 - The scene: GET /api/scene. The library: GET /api/library.
 - On the same computer no password is needed. When Asset Forge is shared on a network, send
   "Authorization: Bearer <password>" with every request. Callers on other computers cannot use file paths
-  (path, project, to); send data or url instead.
+  (path, project, to); send data or a public url instead (not an address on that computer or its network).
+  These limits also apply to commands inside run_batch. Five wrong passwords lock that address for a minute.
 - Browsers: requests from other websites are refused; tools and scripts (no Origin header) work.
 - MCP: run "node src/mcp/index.js" (or set FORGE_URL and FORGE_PASSWORD to reach a shared Asset Forge) to get every
   command as an MCP tool.`;

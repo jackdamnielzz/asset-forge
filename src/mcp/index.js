@@ -8,6 +8,7 @@ import { AI_GUIDE, API_NOTES } from '../shared/ai-guide.js';
 // MCP bridge: exposes every engine command (including plugin commands) as an MCP tool.
 // Claude Code, Claude Desktop, Cursor and other MCP clients connect here.
 const INSTRUCTIONS = `${AI_GUIDE}\n\n${API_NOTES}`;
+const READ_ONLY = /^(get_|list_|search_|check_|render_preview$|pixellab_tools$|pixellab_tool_info$|pixellab_balance$)/;
 
 const server = new Server({ name: 'asset-forge', version: '0.1.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
 
@@ -20,7 +21,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       title: c.title,
       description: c.description,
       inputSchema: { type: 'object', ...c.inputSchema },
-      annotations: { readOnlyHint: !c.mutates && !/^(export|import|new_|open_|save_|undo|redo|run_batch|open_window)/.test(c.name) },
+      // Only commands that just look (and cost nothing) count as read-only: MCP apps may run
+      // read-only tools without asking, and generators, files and paid AI services must not be.
+      annotations: { readOnlyHint: !c.mutates && READ_ONLY.test(c.name) },
     })),
   };
 });

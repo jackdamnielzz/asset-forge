@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { emptyScene, safeName } from '../engine.js';
 import { CommandError } from '../registry.js';
+import { checkScene } from './common.js';
 
 export function register(registry, { z, engine }) {
   const readProject = async (name) => {
@@ -39,8 +40,11 @@ export function register(registry, { z, engine }) {
     description: 'Open a saved project.',
     input: z.object({ name: z.string() }),
     async handler({ name }) {
-      const scene = await readProject(safeName(name));
-      if (!scene) throw new CommandError(`No project named "${name}". Call list_projects.`);
+      const clean = safeName(name);
+      const found = await readProject(clean);
+      if (!found) throw new CommandError(`No project named "${name}". Call list_projects.`);
+      // the file name decides where it saves, even if the name inside the file differs (a copied file)
+      const scene = checkScene({ ...found, name: clean });
       await engine.loadScene(scene);
       return { project: scene.name, objects: scene.order.length };
     },
@@ -50,14 +54,22 @@ export function register(registry, { z, engine }) {
     name: 'save_project_as',
     title: 'Save project as',
     category: 'project',
-    description: 'Save the current scene under a new project name and continue working in that copy.',
-    input: z.object({ name: z.string() }),
-    async handler({ name }) {
+    description:
+      'Save the current scene under a new project name and continue working in that copy. ' +
+      'Refuses a name that is already taken, unless overwrite is true (the old project is then kept as a version first).',
+    input: z.object({ name: z.string(), overwrite: z.boolean().optional().describe('Replace an existing project with this name') }),
+    handler({ name, overwrite = false }) {
       const clean = safeName(name);
-      engine.scene.name = clean;
-      await engine.saveCurrent();
-      engine.changed();
-      return { project: clean };
+      return engine.exclusive(async () => {
+        if (clean === engine.scene.name) { await engine.saveCurrent(); return { project: clean }; }
+        const existing = await readProject(clean);
+        if (existing && !overwrite) throw new CommandError(`Project "${clean}" already exists. Choose another name, or pass overwrite: true to replace it.`);
+        if (existing) await engine.history.save({ ...existing, name: clean }, 'safety', 'before being overwritten by save_project_as');
+        engine.scene.name = clean;
+        await engine.saveCurrent();
+        engine.changed();
+        return { project: clean };
+      });
     },
   });
 }

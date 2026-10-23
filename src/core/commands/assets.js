@@ -13,11 +13,30 @@ export async function readSource(args, fallback = 'asset') {
     return { buf, name: path.parse(args.path).name };
   }
   if (args.url) {
-    const res = await fetch(args.url);
+    let res;
+    try {
+      res = await fetch(args.url, { signal: AbortSignal.timeout(120_000) });
+    } catch (err) {
+      throw new CommandError(`Download failed: ${err.name === 'TimeoutError' ? 'it took longer than 2 minutes' : err.message}`);
+    }
     if (!res.ok) throw new CommandError(`Download failed: HTTP ${res.status}`);
-    return { buf: Buffer.from(await res.arrayBuffer()), name: path.parse(new URL(args.url).pathname).name || fallback };
+    return { buf: await readLimited(res), name: path.parse(new URL(args.url).pathname).name || fallback };
   }
   return { buf: Buffer.from(args.data.replace(/^data:[^,]+,/, ''), 'base64'), name: fallback };
+}
+
+// Read a download, but stop at MAX_DOWNLOAD so a huge or endless file cannot fill the memory.
+const MAX_DOWNLOAD = 500 * 1024 * 1024;
+async function readLimited(res) {
+  if (Number(res.headers.get('content-length')) > MAX_DOWNLOAD) throw new CommandError('Download is too big (over 500 MB).');
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > MAX_DOWNLOAD) throw new CommandError('Download is too big (over 500 MB).');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 export async function storeImage(engine, buf, name, meta = {}) {
