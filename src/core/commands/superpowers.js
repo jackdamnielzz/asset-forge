@@ -5,6 +5,7 @@ import { CommandError } from '../registry.js';
 import { BUILTIN_HOUSE_STYLES } from '../../shared/housestyles.js';
 import { LIGHTING_PRESETS, STYLES, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS } from '../../shared/presets.js';
 import { color } from './common.js';
+import { toHex } from '../../shared/colors.js';
 
 // Recipes, variations, quality check and house styles: tools that help an AI (or a person)
 // iterate towards a good-looking, consistent set of assets.
@@ -43,13 +44,22 @@ export function register(registry, { z, engine }) {
     async handler({ id, changes = {} }, ctx) {
       const o = engine.getObject(id);
       if (!o.recipe) throw new CommandError(`"${o.name}" has no recipe (it was not made by a generator).`);
-      const keep = { name: o.name, parent: o.parent, position: [...o.position], rotation: [...o.rotation], scale: [...o.scale] };
+      const keep = { name: o.name, parent: o.parent, position: [...o.position], rotation: [...o.rotation], scale: [...o.scale], variationOf: o.variationOf };
+      // animations put on the whole object (e.g. spin) and its place in the list survive the rebuild
+      const tracks = Object.entries(engine.scene.animations ?? {}).flatMap(([anim, a]) => a.tracks.filter((t) => t.target === id).map((t) => [anim, structuredClone(t)]));
+      const place = engine.scene.order.indexOf(id);
       let newId;
       await engine.batch(async () => {
         await engine.execute('delete_object', { id }, ctx.meta);
         const r = await engine.execute(o.recipe.command, { ...o.recipe.args, ...changes, name: keep.name, position: keep.position, rotation: keep.rotation }, ctx.meta);
         newId = r.id;
         Object.assign(engine.scene.objects[newId], { parent: keep.parent, scale: keep.scale });
+        if (keep.variationOf) engine.scene.objects[newId].variationOf = keep.variationOf;
+        for (const [anim, t] of tracks) engine.scene.animations[anim]?.tracks.push({ ...t, target: newId });
+        const parts = new Set(subtree(newId));
+        const rebuilt = engine.scene.order.filter((oid) => parts.has(oid));
+        engine.scene.order = engine.scene.order.filter((oid) => !parts.has(oid));
+        engine.scene.order.splice(Math.min(place, engine.scene.order.length), 0, ...rebuilt);
       });
       engine.changed();
       return { id: newId, recipe: engine.scene.objects[newId].recipe };
@@ -73,8 +83,9 @@ export function register(registry, { z, engine }) {
         const ids = subtree(id);
         const set = new Set(ids);
         const extraCutters = ids.flatMap((i) => (engine.scene.objects[i].booleans ?? []).map((b) => b.id)).filter((c) => !set.has(c));
-        const all = [...ids, ...extraCutters];
-        const allSet = new Set(all);
+        // a cutter used by several parts is stored once
+        const allSet = new Set([...ids, ...extraCutters]);
+        const all = [...allSet];
         recipe = {
           kind: 'objects', root: id,
           objects: all.map((i) => structuredClone(engine.scene.objects[i])),
@@ -99,14 +110,17 @@ export function register(registry, { z, engine }) {
     category: 'recipes',
     description: 'Place a saved recipe (template) in the current scene. See list_recipes.',
     input: z.object({ name: z.string(), position: z.array(z.number()).length(3).optional(), changes: z.record(z.string(), z.any()).optional().describe('Generator recipes only: change options') }),
-    async handler({ name, position = [0, 0, 0], changes = {} }, ctx) {
+    async handler({ name, position, changes = {} }, ctx) {
       const r = await readJson(path.join(dir('recipes'), `${safeName(name)}.json`));
       if (!r) throw new CommandError(`No recipe "${name}". See list_recipes.`);
-      if (r.kind === 'generator') return engine.execute(r.command, { ...r.args, ...changes, position }, ctx.meta);
+      if (r.kind === 'generator') return engine.execute(r.command, { ...r.args, ...changes, position: position ?? [0, 0, 0] }, ctx.meta);
+      // by default a single shape keeps its height, so it rests on the ground as it did when saved
+      position ??= [0, r.objects.find((x) => x.id === r.root)?.position[1] ?? 0, 0];
       let rootId;
       await engine.batch(async () => {
         const map = {};
-        for (const o of r.objects) map[o.id] = engine.newId(o.name);
+        const reserved = new Set();
+        for (const o of r.objects) map[o.id] = engine.newId(o.name, reserved);
         for (const o of r.objects) {
           const copy = { ...structuredClone(o), id: map[o.id], parent: o.id === r.root ? null : map[o.parent] ?? null };
           if (copy.booleans) copy.booleans = copy.booleans.map((b) => ({ ...b, id: map[b.id] })).filter((b) => b.id);
@@ -199,6 +213,9 @@ export function register(registry, { z, engine }) {
       const group = v.parent;
       await engine.batch(async () => {
         Object.assign(v, { parent: orig?.parent ?? null, position: orig ? [...orig.position] : [0, 0, 0], rotation: orig ? [...orig.rotation] : v.rotation, name: orig?.name ?? v.name });
+        // a generator-made variation is built at normal size; it takes over the original's size
+        // (hand-built variations already carry the original's size with a small change)
+        if (orig && v.recipe) v.scale = [...orig.scale];
         delete v.variationOf;
         if (orig) await engine.execute('delete_object', { id: orig.id }, ctx.meta);
         if (group && engine.scene.objects[group]) await engine.execute('delete_object', { id: group }, ctx.meta);
@@ -256,7 +273,8 @@ export function register(registry, { z, engine }) {
           const m = o.material;
           if (o.type === 'box' && o.params.bevel === 0) add('tip', oid, 'Box with perfectly sharp edges looks computer-made.', 'Give it a small bevel (0.01–0.03).');
           if (m?.texture && !engine.library.images[m.texture]) add('error', oid, 'Uses a picture that is no longer in the library.', 'Pick another picture or remove it.');
-          if (m && !m.emissiveIntensity && !m.pattern && ['#000000', '#ffffff'].includes(String(m.color).toLowerCase())) add('tip', oid, `Pure ${m.color === '#000000' ? 'black' : 'white'} looks flat.`, 'Use a slightly tinted dark or light colour instead.');
+          const glows = m && m.emissive && m.emissive !== '#000000' && m.emissiveIntensity > 0;
+          if (m && !glows && !m.pattern && ['#000000', '#ffffff'].includes(String(m.color).toLowerCase())) add('tip', oid, `Pure ${m.color === '#000000' ? 'black' : 'white'} looks flat.`, 'Use a slightly tinted dark or light colour instead.');
           if (m && m.metalness > 0.8 && m.roughness < 0.06 && m.preset !== 'chrome') add('tip', oid, 'Mirror-smooth metal can look fake.', 'Raise roughness to 0.15–0.35, or use a brushed or worn metal preset.');
         }
       }
@@ -323,10 +341,13 @@ export function register(registry, { z, engine }) {
       'While a house style is active, sprite sheets, tilesets and pixel art use its palette unless another palette is given.',
     input: z.object({ name: z.string(), recolor: z.boolean().optional() }),
     async handler({ name, recolor = true }) {
-      const st = (await allStyles())[name];
+      const styles = await allStyles();
+      // saved styles are stored under a file-safe name ("My Style" becomes "My-Style")
+      const key = Object.hasOwn(styles, name) ? name : Object.hasOwn(styles, safeName(name)) ? safeName(name) : null;
+      const st = key && styles[key];
       if (!st) throw new CommandError(`No house style "${name}". See list_house_styles.`);
       const env = engine.scene.environment;
-      Object.assign(env, { lighting: st.lighting ?? env.lighting, exposure: st.exposure ?? env.exposure, style: st.style ?? env.style, houseStyle: name, housePalette: st.palette });
+      Object.assign(env, { lighting: st.lighting ?? env.lighting, exposure: st.exposure ?? env.exposure, style: st.style ?? env.style, houseStyle: key, housePalette: st.palette });
       if (st.styleOptions) env.styleOptions = { ...DEFAULT_STYLE_OPTIONS, ...st.styleOptions };
       if (st.effects) env.effects = { ...DEFAULT_EFFECTS, ...st.effects };
       let recolored = 0;
@@ -334,13 +355,15 @@ export function register(registry, { z, engine }) {
         for (const o of Object.values(engine.scene.objects)) {
           const m = o.material;
           if (!m || o.type === 'model') continue;
-          if (m.color) m.color = nearest(st.palette, m.color);
+          // voxels carry their colours in their palette and pictures in their texture: keep their material white
+          if (o.type === 'voxels') o.params.palette = o.params.palette.map((c) => nearest(st.palette, c));
+          else if (m.color && !m.texture) m.color = nearest(st.palette, m.color);
           if (m.emissive && m.emissive !== '#000000' && m.emissiveIntensity > 0) m.emissive = nearest(st.palette, m.emissive);
           if (m.pattern?.colors) m.pattern.colors = m.pattern.colors.map((c) => nearest(st.palette, c));
           recolored++;
         }
       }
-      return { houseStyle: name, recolored };
+      return { houseStyle: key, recolored };
     },
   });
 }
@@ -363,16 +386,18 @@ function jitter(engine, ids, seed) {
 }
 
 function shiftColor(hex, amount) {
-  const n = parseInt(String(hex).replace('#', ''), 16);
-  if (Number.isNaN(n)) return hex;
+  const clean = toHex(hex);
+  if (!clean) return hex;
+  const n = parseInt(clean.slice(1), 16);
   const f = (v, k) => Math.max(0, Math.min(255, Math.round(v * (1 + amount * k))));
   const r = f(n >> 16, 1), g = f((n >> 8) & 255, 0.6), b = f(n & 255, -0.4);
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
 function nearest(palette, hex) {
-  const n = parseInt(String(hex).replace('#', ''), 16);
-  if (Number.isNaN(n)) return hex;
+  const clean = toHex(hex);
+  if (!clean) return hex;
+  const n = parseInt(clean.slice(1), 16);
   const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255];
   let best = palette[0], bd = Infinity;
   for (const p of palette) {

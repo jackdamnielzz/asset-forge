@@ -73,7 +73,9 @@ export function sampleObject(animation, id, t) {
   for (const track of animation.tracks) {
     if (track.target !== id) continue;
     const preset = ANIMATION_PRESETS[track.preset];
-    const local = ((t * (track.speed ?? 1)) + (track.offset ?? 0)) % 1;
+    const raw = (t * (track.speed ?? 1)) + (track.offset ?? 0);
+    // the very end of a cycle is 1, not 0: an "open once" door must end open, not snap shut
+    const local = raw > 0 && raw % 1 === 0 ? 1 : raw % 1;
     const o = track.keys ? sampleKeys(track.keys, local) : preset ? preset.sample({ ...preset.params, ...track.params }, local) : {};
     if (o.position) total.position = total.position.map((v, i) => v + o.position[i]);
     if (o.rotation) total.rotation = total.rotation.map((v, i) => v + o.rotation[i]);

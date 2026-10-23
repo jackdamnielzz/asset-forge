@@ -58,16 +58,17 @@ export function register(registry, { z, engine }) {
       const out = await pl.run(t, params, { pathParams, onStatus: status });
       const base = safeName(name ?? params.description ?? params.prompt ?? t).slice(0, 40);
       const assets = [];
+      let first = null; // the picture shown to the caller: the first one that was stored, with its real type
       for (const [i, img] of out.images.entries()) {
         try {
           const a = await storeImage(engine, img.buf, out.images.length > 1 ? `${base}_${img.label || i + 1}` : base, { madeBy: { service: 'pixellab', tool: t, prompt: params.description ?? params.prompt ?? null } });
           assets.push({ assetId: a.id, label: img.label, width: a.width, height: a.height });
+          first ??= { buf: img.buf, mime: a.mime };
         } catch { /* not an image we can store (e.g. a zip) */ }
       }
-      const first = assets[0] && out.images.find((_, i) => i === 0);
       return {
         tool: t, assets, usage: out.usage, jobId: out.jobId, response: out.response,
-        ...(first ? { image: first.buf.toString('base64'), mime: 'image/png' } : {}),
+        ...(first ? { image: first.buf.toString('base64'), mime: first.mime } : {}),
         note: assets.length ? undefined : 'No pictures in the result; see response (e.g. ids of things saved in your PixelLab account).',
       };
     },

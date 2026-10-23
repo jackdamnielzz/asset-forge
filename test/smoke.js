@@ -384,6 +384,49 @@ try {
   const head = (await fs.readFile(glb.path)).toString('ascii', 0, 4);
   check(head === 'glTF' && glb.bytes > 10_000, `export_glb writes a valid GLB (${Math.round(glb.bytes / 1024)} KB)`);
 
+  // recipes, copies, remake, colours, exports and library: fixes from the review
+  await call('clear_scene');
+  const table = await call('add_object', { type: 'group', name: 'table' });
+  for (const [x, n] of [[-0.4, 'leg'], [0, 'leg'], [0.4, 'Leg']]) await call('add_object', { type: 'box', name: n, parent: table.id, position: [x, 0.3, 0], params: { width: 0.05, height: 0.6, depth: 0.05 } });
+  await call('save_recipe', { id: table.id, name: 'test-table' });
+  const placedTable = await call('use_recipe', { name: 'test-table', position: [2, 0, 0] });
+  const tableScene = await call('get_scene');
+  check(tableScene.order.filter((id) => tableScene.objects[id].parent === placedTable.id).length === 3 && new Set(tableScene.order).size === tableScene.order.length, 'recipes keep parts that share a name apart');
+  const each2 = await call('export_each', { group: table.id, folder: 'same-names' });
+  check(new Set(each2.files).size === 3, 'export_each gives same-named objects their own file');
+  const panelSet = await call('add_object', { type: 'group', name: 'panel_set' });
+  const panel = await call('add_object', { type: 'box', name: 'panel', parent: panelSet.id, params: { width: 1, height: 1, depth: 0.1 } });
+  const holeC = await call('add_object', { type: 'cylinder', name: 'hole', parent: panelSet.id, rotation: [90, 0, 0], params: { radiusTop: 0.2, radiusBottom: 0.2, height: 0.5 } });
+  await call('cut_object', { target: panel.id, cutter: holeC.id });
+  const dupSet = await call('duplicate_object', { id: panelSet.id });
+  const dupScene = await call('get_scene');
+  check(dupScene.objects[dupSet.mapping[panel.id]].booleans[0].id === dupSet.mapping[holeC.id], 'a copy is cut by its own copied cutter');
+  await call('delete_object', { id: panel.id });
+  const freed = await call('get_object', { id: holeC.id });
+  check(freed.visible && !freed.cutterFor, 'a cutter whose target is deleted becomes visible again');
+  const spinCrate = await call('make_crate', { position: [4, 0, 0] });
+  await call('animate_object', { id: spinCrate.id, preset: 'spin' });
+  const remadeCrate = await call('remake', { id: spinCrate.id, changes: { seed: 4 } });
+  check((await call('get_scene')).animations.idle.tracks.some((t) => t.target === remadeCrate.id), 'remake keeps animations');
+  const blue = await call('add_object', { type: 'box', material: { color: 'blue' } });
+  check(blue.object.material.color === '#0000ff', 'colour names are stored as hex');
+  const notColour = await attempt('add_object', { type: 'box', material: { color: 'bleu' } });
+  check(!notColour.ok && /not a colour/.test(notColour.error), 'unknown colours are refused');
+  const reserved = await attempt('animate_object', { id: blue.id, preset: 'spin', animation: '__proto__' });
+  check(!reserved.ok && /reserved/.test(reserved.error), 'reserved animation names are refused');
+  const usedPic = await call('add_object', { type: 'box', material: { texture: pixelPic.assetId } });
+  const inUse = await attempt('delete_library_item', { kind: 'image', id: pixelPic.assetId });
+  check(!inUse.ok && /still used/.test(inUse.error), 'library images in use are not deleted without force');
+  check(!!(await call('set_material', { id: usedPic.id, color: '#336699' })), 'objects stay editable');
+
+  // the ready-made example scenes must keep working
+  for (const f of await fs.readdir(path.join(ROOT, 'examples'))) {
+    const { commands } = JSON.parse(await fs.readFile(path.join(ROOT, 'examples', f), 'utf8'));
+    await call('clear_scene');
+    const ran = await attempt('run_batch', { commands });
+    check(ran.ok, `example ${f} runs${ran.ok ? '' : `: ${ran.error}`}`);
+  }
+
   await call('new_project', { name: 'second' });
   const list = await call('list_projects');
   check(list.projects.includes('untitled') && list.current === 'second', 'projects save and switch');

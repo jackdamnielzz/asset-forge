@@ -30,8 +30,13 @@ export function register(registry, z, engine) {
         : { head: 0.16, torso: 0.33, leg: 0.42, arm: 0.36, width: 0.26, limb: 0.075 };
       const u = (v) => v * H;
       const matte = (c, extra = {}) => ({ preset: 'matte', color: c, roughness: 0.75, ...extra });
-      const skin = matte(a.skin ?? '#f1c4a0'), hair = matte(a.hair ?? '#5a3825'), shirt = matte(a.shirt ?? '#3f7fd1');
-      const pants = matte(a.pants ?? '#3b3f58'), shoes = matte(a.shoes ?? '#4a3326');
+      // colours that are not given come from the seed (seed 1 = the classic look), so seeds give different villagers
+      const n = (a.seed ?? 1) - 1;
+      const pick = (list, step) => list[((n * step) % list.length + list.length) % list.length];
+      const skin = matte(a.skin ?? pick(['#f1c4a0', '#c98e62', '#8d5a3b', '#f6d7c3', '#e0ac7e', '#5e3b26'], 1));
+      const hair = matte(a.hair ?? pick(['#5a3825', '#2b2220', '#d9a84e', '#a2462b', '#e8e2d6', '#3b3b4a'], 5));
+      const shirt = matte(a.shirt ?? pick(['#3f7fd1', '#c0463c', '#4f9a52', '#d6a23a', '#7c4fb0', '#3c8c8c', '#b8653a'], 3));
+      const pants = matte(a.pants ?? pick(['#3b3f58', '#5b4636', '#2f4a3a', '#4a4a4a'], 2)), shoes = matte(a.shoes ?? pick(['#4a3326', '#2e2b2b', '#5c4a3a'], 1));
       const box = (parent, name, size, pos, mat, bevel = 0.18) =>
         k.part(parent, 'box', name, pos, { width: u(size[0]), height: u(size[1]), depth: u(size[2]), bevel: u(Math.min(...size) * bevel) }, mat);
 
@@ -57,9 +62,9 @@ export function register(registry, z, engine) {
         await k.part(neck, 'cone', 'hat', [0, u(headH * 0.98 + headH * 0.45), 0], { radius: u(hw * 0.5), height: u(headH * 0.9), segments: 24 }, matte('#4b2f7a'), { rotation: [-8, 0, 0] });
       }
       if (hat === 'helmet') {
-        await k.part(neck, 'lathe', 'helmet', [0, u(headH * 0.45), 0], {
-          points: [[0, u(headH * 0.62)], [u(hw * 0.42), u(headH * 0.55)], [u(hw * 0.6), u(headH * 0.3)], [u(hw * 0.62), 0], [u(hw * 0.58), 0]], segments: 32,
-        }, { preset: 'steel', color: '#aab2bb', roughness: 0.35 });
+        await k.part(neck, 'lathe', 'helmet', [0, u(headH * 0.62), 0], {
+          points: [[u(hw * 0.62), 0], [u(hw * 0.67), 0], [u(hw * 0.66), u(headH * 0.2)], [u(hw * 0.48), u(headH * 0.42)], [0, u(headH * 0.5)]], segments: 32,
+        }, { preset: 'steel', color: '#aab2bb', roughness: 0.45 });
       }
 
       // arms swing from the shoulders; hands at the end

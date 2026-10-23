@@ -1,6 +1,6 @@
 # Asset Forge API reference
 
-Version 0.1.0 · 107 commands · generated from the software itself (`npm run docs`), so it always matches.
+Version 0.2.0 · 107 commands · generated from the software itself (`npm run docs`), so it always matches.
 
 ## How to call
 
@@ -769,17 +769,18 @@ POST /api/commands/make_tileset
 
 **Crate**
 
-Build a wooden crate as one group (frame posts, beams, diagonal braces, panels, optional metal corners). Returns the group id. Vary seed for different wood tones.
+Build a wooden crate as one group (frame posts, beams, diagonal braces, panels, optional metal corners). Vary seed for different wood tones. Builds one group and returns its id. Common options: position, seed (different variation), name.
 
 | Input | Type | Required | Description |
 |---|---|---|---|
 | `size` | number |  | Edge length in metres (default 1) Range 0.2 to 10. |
-| `position` | list of number |  | Position [x, y, z] in metres; y is up, y = 0 is the ground Exactly 3 values. |
 | `woodColor` | string |  | Lightest wood tone as hex, e.g. "#c8955c" (default warm oak) |
 | `metalCorners` | boolean |  | Add metal caps on the corners |
 | `braces` | boolean |  | Diagonal braces on front and back (default true) |
-| `seed` | integer |  | Whole number that picks a variation; the same seed always gives the same result Range -9007199254740991 to 9007199254740991. |
 | `wear` | number |  | Age: 0 = new, 1 = very old and dirty Range 0 to 1. |
+| `position` | list of number |  | Position [x, y, z] in metres; y is up, y = 0 is the ground Exactly 3 values. |
+| `rotation` | list of number |  | Degrees Exactly 3 values. |
+| `seed` | integer |  | Whole number that picks a variation; the same seed always gives the same result Range -9007199254740991 to 9007199254740991. |
 | `name` | string |  | A readable name (letters, numbers, - and _) |
 
 ```json
@@ -936,7 +937,7 @@ Standing sword: bevelled blade with a groove (fuller), crossguard, wrapped grip 
 | Input | Type | Required | Description |
 |---|---|---|---|
 | `length` | number |  | Total length, default 1 m Range 0.2 to 5. |
-| `bladeWidth` | number |  | Default 0.09 m Range 0.01 to 1. |
+| `bladeWidth` | number |  | Default 9% of the length (0.09 m for a 1 m sword) Range 0.01 to 1. |
 | `guardColor` | string |  | Colour of the crossguard and pommel |
 | `gripColor` | string |  | Colour of the grip wrapping |
 | `wear` | number |  | Age from 0 (brand new) to 1 (very old: grime, scratches, faded) Range 0 to 1. |
@@ -961,7 +962,7 @@ Coin with a raised rim and an embossed symbol (letters/numbers). count > 1 makes
 | `radius` | number |  | Default 0.06 m Range 0.005 to 2. |
 | `symbol` | string |  | Up to 3 letters or digits, default "$" |
 | `material` | one of |  | Metal of the coin Allowed: "gold", "copper", "steel", "chrome". |
-| `count` | integer |  | Number of coins in the stack Range 1 to 40. |
+| `count` | integer |  | More than 1 makes a stack (or a row when upright) Range 1 to 40. |
 | `upright` | boolean |  | Stand the coin on its edge, facing forward (for spinning pickups) |
 | `position` | list of number |  | Position [x, y, z] in metres; y is up, y = 0 is the ground Exactly 3 values. |
 | `rotation` | list of number |  | Degrees Exactly 3 values. |
@@ -1564,12 +1565,13 @@ POST /api/commands/search_library
 
 **Delete from library**
 
-Permanently remove an asset, image or model from the library (its file too). Objects already in scenes that use it lose it. Ask the user first.
+Permanently remove an asset, image or model from the library (its file too). Ask the user first. An image or model that objects in the open project still use is only removed with force: true (those objects then lose it).
 
 | Input | Type | Required | Description |
 |---|---|---|---|
 | `kind` | one of | yes | Which kind of library item: asset, image or model Allowed: "asset", "image", "model". |
 | `id` | string | yes | Id of the object to work on (see get_scene; ids look like "box_1") |
+| `force` | boolean |  | Also remove it when objects in the open project still use it |
 
 ```json
 POST /api/commands/delete_library_item

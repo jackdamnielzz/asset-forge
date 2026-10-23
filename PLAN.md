@@ -67,9 +67,9 @@
 - **Language:** modern JavaScript (web-style code; runs everywhere, huge ecosystem, no build step).
   We can move to TypeScript later if the codebase grows large.
 - **3D engine:** three.js (free, mature, renders in real time).
-- **Geometry helpers:** libraries for bevels, boolean cuts (manifold-3d), etc.
+- **Geometry helpers:** rounded-edge shapes built in-house, boolean cuts with three-bvh-csg.
 - **Exports:** GLB/glTF (opens in Godot, Unity, Unreal, Blender), PNG, sprite sheets.
-- **Desktop app:** later wrapped as a real Windows program (Tauri or Electron).
+- **Desktop app:** a Windows shortcut opens Asset Forge in its own Edge/Chrome app window (no Tauri or Electron needed).
 - **Optional later:** plugins that call AI image generators for textures, or Blender
   in the background for very heavy rendering.
 
@@ -116,7 +116,7 @@
 ### Phase 6 — AI superpowers ✅ done (2026-10-23)
 - Recipes: every asset remembers how it was made and can be re-made with changes
 - Variations grid ("make 12 versions")
-- Quality check (floating parts, overlaps, size, polygon count)
+- Quality check (floating parts, sharp edges, odd sizes, polygon count, flat colours)
 - House style (shared palette, materials and lighting for one game)
 
 ### Phase 7 — More pixel art ✅ done (2026-10-23)
@@ -137,6 +137,5 @@
 
 > "Make a rusty sci-fi supply crate in three variants and export them for Godot."
 
-Claude would call: `create_from_generator(crate)` → `set_material(rusty_metal)` →
-`bevel(0.02)` → `set_lighting(studio)` → `render_preview` (looks at it, adjusts) →
-`export(glb)` ×3. You watch it happen live in the window.
+Claude would call: `make_crate` → `set_material` (preset `rusty_metal`) → `set_environment` (studio) →
+`render_preview` (looks at it, adjusts) → `make_variations` → `export_godot` ×3. You watch it happen live in the window.

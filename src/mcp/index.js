@@ -10,7 +10,7 @@ import { AI_GUIDE, API_NOTES } from '../shared/ai-guide.js';
 const INSTRUCTIONS = `${AI_GUIDE}\n\n${API_NOTES}`;
 const READ_ONLY = /^(get_|list_|search_|check_|render_preview$|pixellab_tools$|pixellab_tool_info$|pixellab_balance$)/;
 
-const server = new Server({ name: 'asset-forge', version: '0.1.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
+const server = new Server({ name: 'asset-forge', version: '0.2.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   await ensureEngine();

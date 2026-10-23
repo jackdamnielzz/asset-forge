@@ -16,18 +16,19 @@ export function register(registry, z, engine) {
       const size = a.size ?? 0.7, color = a.color ?? '#a19d95';
       const stone = (seed) => ({ preset: 'concrete', color: k.shade(color, k.range(-0.12, 0.05)), roughness: 0.92, pattern: { type: 'concrete', scale: size * 1.2, bump: 1.8, seed } });
       const rock = async (name, r, position, seed) => {
-        const id = await k.part(root, 'rock', name, position,
-          { radius: r, detail: a.lowpoly ? 1 : 4, roughness: k.range(0.28, 0.42), flatten: k.range(0.25, 0.45), sharpness: a.lowpoly ? 1 : 0, seed },
+        const shape = { radius: r, detail: a.lowpoly ? 1 : 4, roughness: k.range(0.28, 0.42), flatten: k.range(0.25, 0.45), sharpness: a.lowpoly ? 1 : 0, seed };
+        const id = await k.part(root, 'rock', name, position, shape,
           stone(seed), { rotation: [0, k.range(0, 360), 0], scale: [k.range(0.9, 1.25), k.range(0.75, 1), k.range(0.85, 1.15)] });
         if (a.moss) {
+          // the same stone, slightly bigger, so the moss follows the rock's own bumps
           const moss = await k.part(root, 'rock', `${name}_moss`, position,
-            { radius: r * 1.04, detail: a.lowpoly ? 1 : 4, roughness: 0.4, flatten: 0.35, sharpness: a.lowpoly ? 1 : 0, seed },
+            { ...shape, radius: r * 1.03 },
             { preset: 'cloth', color: '#5f8a3a', roughness: 1, pattern: { type: 'fabric', scale: 0.08, bump: 2 } }, { rotation: [0, 0, 0] });
           const engineObj = engine.scene.objects;
           Object.assign(engineObj[moss], { rotation: [...engineObj[id].rotation], scale: [...engineObj[id].scale] });
           // keep only the top of the moss shell
           const cap = await k.part(root, 'box', `${name}_moss_cap`, [position[0], position[1] + r * 1.75, position[2]],
-            { width: r * 3, height: r * 1.3, depth: r * 3, bevel: 0 }, {});
+            { width: r * 3, height: r * 1.3, depth: r * 3, bevel: 0 }, {}, { rotation: [k.range(-14, 14), 0, k.range(-14, 14)] }); // tilted: a natural, uneven moss line
           await k.cut(moss, cap, 'intersect');
         }
         return id;

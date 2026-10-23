@@ -164,6 +164,7 @@ Everything is generated from the software itself, so it is always complete: ever
 | [docs/openapi.json](docs/openapi.json) | Tools: OpenAPI 3.1 | `/api/openapi.json` |
 | [AGENTS.md](AGENTS.md) | AI coding agents: where to start | — |
 | [PLAN.md](PLAN.md) | The vision and roadmap | — |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each version | — |
 
 ## Extend it
 
@@ -201,6 +202,7 @@ src/shared/    presets, palettes and animations used by engine and window
 web/           the window (three.js, no build step)
 plugins/       add-ons; each folder is one plugin
 docs/          generated API docs
+examples/      ready-made scenes as command lists: node src/cli/forge.js run examples/showcase.json
 test/          npm test (end-to-end) and npm run test:godot
 workspace/     your projects, library and exports (not in git)
 ```

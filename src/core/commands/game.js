@@ -40,13 +40,14 @@ export function register(registry, { z, engine }) {
       const dir = await exportDir(engine, args.folder ?? 'icons');
       const size = args.size ?? 256;
       const files = [];
+      const names = fileNames(targets);
       for (const o of targets) {
         const out = await engine.render({
           view: args.view ?? 'iso', width: size, height: size, target: o.id, isolate: true, ground: false,
           background: args.background ?? 'transparent', padding: args.padding ?? 0.06,
           outline: args.outline === null ? null : { color: args.outline ?? '#1b1c20', width: args.outlineWidth ?? Math.max(1, Math.round(size / 96)) },
         });
-        const file = path.join(dir, `${safeName(o.name)}.png`);
+        const file = path.join(dir, `${names.get(o.id)}.png`);
         await fs.writeFile(file, Buffer.from(out.png, 'base64'));
         files.push(file);
       }
@@ -168,9 +169,10 @@ export function register(registry, { z, engine }) {
       if (!items.length) throw new CommandError('Nothing to export.');
       const dir = project ? await godotDir(project, folder ?? 'assets/forge') : await exportDir(engine, folder ?? 'kit');
       const files = [];
+      const names = fileNames(items);
       for (const o of items) {
-        const out = await engine.exportGlb({ target: o.id, collision: col, animations: true, atOrigin: true, name: safeName(o.name) });
-        const file = path.join(dir, `${safeName(o.name)}.glb`);
+        const out = await engine.exportGlb({ target: o.id, collision: col, animations: true, atOrigin: true, name: names.get(o.id) });
+        const file = path.join(dir, `${names.get(o.id)}.glb`);
         await fs.writeFile(file, Buffer.from(out.glb, 'base64'));
         files.push(file);
       }
@@ -200,6 +202,20 @@ export function spriteFramesTres(meta, colorPath, normalPath) {
     return `{\n"frames": [${frames.join(', ')}],\n"loop": true,\n"name": &"${rowName}",\n"speed": ${(meta.fps ?? 5).toFixed(1)}\n}`;
   });
   return `[gd_resource type="SpriteFrames" load_steps=${ext.length + subs.length + 1} format=3]\n\n${ext.join('\n')}\n\n${subs.join('\n\n')}\n\n[resource]\nanimations = [${anims.join(', ')}]\n`;
+}
+
+// One file name per object; objects with the same name get _2, _3 … instead of overwriting each other.
+function fileNames(objects) {
+  const used = new Set();
+  const names = new Map();
+  for (const o of objects) {
+    const base = safeName(o.name);
+    let name = base;
+    for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base}_${n}`;
+    used.add(name.toLowerCase());
+    names.set(o.id, name);
+  }
+  return names;
 }
 
 export async function exportDir(engine, folder) {

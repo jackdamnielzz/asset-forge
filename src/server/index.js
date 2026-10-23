@@ -179,7 +179,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/' || p === '/index.html') return sendFile(res, path.join(ROOT, 'web', 'index.html'));
-    if (p.startsWith('/library/images/')) return sendFile(res, safeJoin(engine.paths.images, p.slice('/library/images/'.length)));
+    if (p.startsWith('/library/images/')) {
+      // an image can also be asked for by its id (the window may know the id before the library update arrives)
+      const rel = p.slice('/library/images/'.length);
+      return sendFile(res, safeJoin(engine.paths.images, Object.hasOwn(engine.library.images, rel) ? engine.library.images[rel].file : rel));
+    }
     if (p.startsWith('/library/models/')) return sendFile(res, safeJoin(path.join(engine.paths.library, 'models'), p.slice('/library/models/'.length)));
     if (p.startsWith('/library/thumbs/')) return sendFile(res, safeJoin(path.join(engine.paths.library, 'thumbs'), p.slice('/library/thumbs/'.length)));
     if (p.startsWith('/library/videos/')) return sendFile(res, safeJoin(path.join(engine.paths.library, 'videos'), p.slice('/library/videos/'.length)));

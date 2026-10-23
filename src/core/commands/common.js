@@ -1,10 +1,17 @@
 import { z } from 'zod';
 import { MATERIAL_PRESETS, SHAPE_DEFAULTS, PATTERNS, FONTS, OBJECT_TYPES } from '../../shared/presets.js';
 import { CommandError } from '../registry.js';
+import { toHex } from '../../shared/colors.js';
 
 export const vec3 = z.array(z.number()).length(3);
 export const vec2 = z.array(z.number()).length(2);
-export const color = z.string().describe('CSS colour, e.g. "#ff8800" or "orange"');
+// Colours are stored as "#rrggbb" (names and "#rgb" are converted), so colour maths works on them.
+export const color = z.string().transform((c, ctx) => {
+  if (String(c).trim().toLowerCase() === 'transparent') return 'transparent';
+  const hex = toHex(c);
+  if (!hex) ctx.addIssue({ code: 'custom', message: `"${c}" is not a colour; use e.g. "#ff8800" or "orange"` });
+  return hex ?? c;
+}).describe('CSS colour, e.g. "#ff8800" or "orange"');
 
 export const patternInput = z.object({
   type: z.enum(Object.keys(PATTERNS)).optional()
@@ -69,7 +76,8 @@ export function applyMaterial(current, input, engine) {
     if (!sameType && !pattern.colors) delete merged.colors;
     base.pattern = fillPattern(merged);
   }
-  if (base.texture && !engine.library.images[base.texture]) {
+  // only a newly chosen picture is checked, so objects whose picture was deleted from the library can still be edited
+  if (input.texture && !engine.library.images[input.texture]) {
     throw new CommandError(`Unknown image asset "${base.texture}". Call list_images or import_image first.`);
   }
   return base;
@@ -105,14 +113,16 @@ export function buildParams(type, current, given = {}, engine) {
     if (!ok) throw new CommandError('voxels: need [[x, y, z, paletteIndex], ...] with whole numbers and an index into the palette');
     if (params.voxels.length > 200000) throw new CommandError('Too many voxels (max 200,000).');
   }
-  if (type === 'model' && !engine.library.models?.[params.assetId]) {
+  const newAsset = given.assetId !== undefined || !current.assetId;
+  if (type === 'model' && newAsset && !engine.library.models?.[params.assetId]) {
     throw new CommandError('Model objects need params.assetId from import_model or generate_3d (see list_library).');
   }
   if (type === 'image' || type === 'cutout') {
     const asset = engine.library.images[params.assetId];
-    if (!asset) throw new CommandError(`${type} objects need params.assetId (from import_image).`);
-    if (given.height !== undefined && given.width === undefined) params.width = params.height * (asset.width / asset.height);
-    else params.height = params.width * (asset.height / asset.width);
+    if (!asset && newAsset) throw new CommandError(`${type} objects need params.assetId (from import_image).`);
+    // keep the picture's proportions (a picture deleted from the library keeps the last size)
+    if (asset && given.height !== undefined && given.width === undefined) params.width = params.height * (asset.width / asset.height);
+    else if (asset) params.height = params.width * (asset.height / asset.width);
   }
   return params;
 }

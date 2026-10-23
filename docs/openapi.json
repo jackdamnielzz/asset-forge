@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Asset Forge API",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Asset Forge is a 3D and pixel-art asset creation tool that AIs drive completely through commands.\nA person may be watching the window live while you work.\n\nBASICS\n- Units are metres, Y is up, rotations are in degrees. New objects rest on the ground unless given a position.\n- Every action is a command. Call get_scene first to see what exists (objects have ids like \"box_1\").\n- Every changing command is one undo step; run_batch runs many commands as one step ($N.id refers to the id from step N).\n- Projects save automatically. save_checkpoint before risky experiments; restore_version goes back.\n\nMAKING BEAUTIFUL 3D ASSETS\n1. Build from several well-proportioned parts and put them in a group (add_object type \"group\", then parent, or group_objects).\n2. Keep a small bevel (0.01–0.05) on boxes: rounded edges catch light and look real.\n3. Use material presets, then tune colour and roughness. Presets with generated surfaces (oak, floor_planks, old_wood,\n   brushed_steel, worn_metal, rusty_metal, cobblestone, brick_wall, floor_tiles, cloth, concrete, hand_painted) look far\n   richer than plain colours. Tune with set_material pattern { scale, seed, variation, bump, angle } and wear (age 0–1).\n   Avoid pure black and white.\n4. Light it: set_environment (studio to judge shapes; outdoor, sunset, night, dramatic for mood). set_style switches the whole\n   look (realistic, toon, lowpoly, clay). set_effects controls soft shadows and glow.\n5. Generators build whole props in one call, each with options and a seed: make_crate, make_barrel, make_chest, make_rock,\n   make_tree, make_crystal, make_potion, make_sword, make_coin, make_lamp_post, make_fence, make_level_kit, make_character.\n   remake changes a generator-made object's options in place; make_variations shows several versions (keep_variation picks one).\n6. Advanced shapes: lathe (spin a [radius, y] profile: bottles, vases, columns), extrude (flat outline with depth: blades,\n   signs), text, rock, cutout (a picture's outline as a solid), voxels (blocks), model (imported .glb).\n   Modelling: cut_object (subtract, union, intersect), mirror_object, repeat_object (line, circle, grid), group_objects, ungroup.\n7. ALWAYS look at your work with render_preview (it returns a picture; try views iso and front; sizeReference shows a\n   1.8 m person) and fix gaps, floating parts and proportions. check_quality finds problems automatically.\n\nGAMES\n- Animation: animate_object (spin, bob, pulse, swing, hinge, shake, hop) or set_keyframes. Animations go into exports.\n- Godot: export_godot / export_each write .glb files with collision and animations straight into a Godot 4 project.\n- Sprites: render_sprites turns an object into a sprite sheet (directions × frames), with pixel-art options (palette,\n  dither, outlineStyle \"selout\", maps [\"normal\"]) and a Godot SpriteFrames file when a project is given.\n- Also: make_icons (inventory icons), make_tileset (autotiles + Godot TileSet), make_effect (explosion, fire, smoke,\n  magic, sparks, glitter, heal, lightning), make_parallax (scrolling backgrounds), make_prop_sheet, make_iso_tiles.\n\nPIXEL ART AND PICTURES\n- pixelate_image (any picture → pixel art), paint_pixels, recolor_image, make_palette_variants, extract_palette,\n  check_pixel_style, remove_background, make_seamless (photo → tiling texture), export_aseprite, voxels_from_image.\n- Palettes: list_palettes (pico8, sweetie16, endesga32, db16, gameboy, onebit). apply_house_style keeps a game consistent.\n\nAI SERVICES (cost the user money: ask before calling)\n- generate_image (openai, google Nano Banana, nanogpt, pixellab), generate_video (nanogpt), generate_3d (fal).\n- PixelLab in full: pixellab_tools lists 70+ tools, pixellab_tool_info shows every setting, pixellab_run runs one.\n  pixellab_balance and list_ai_services are free.\n- If you have your own image tools, make the picture there and bring it in with import_image (data or url).\n\nDELIVERING\n- export_glb (3D model), export_png (picture), save_asset (library with thumbnail and tags). Files go to workspace/exports\n  unless a Godot project folder is given.\n\nHOW TO CALL\n- List everything: GET /api/commands (each command with description and JSON input schema).\n- Run a command: POST /api/commands/<name> with a JSON body of its inputs.\n  Answer: { \"ok\": true, \"result\": … } or { \"ok\": false, \"error\": \"…\" } (HTTP 400 for a wrong input, with a helpful message).\n- Pictures: results with \"image\" hold a base64 PNG. Add ?format=png to get the PNG itself (e.g. render_preview).\n- The scene: GET /api/scene. The library: GET /api/library.\n- On the same computer no password is needed. When Asset Forge is shared on a network, send\n  \"Authorization: Bearer <password>\" with every request. Callers on other computers cannot use file paths\n  (path, project, to); send data or a public url instead (not an address on that computer or its network).\n  These limits also apply to commands inside run_batch. Five wrong passwords lock that address for a minute.\n- Browsers: requests from other websites are refused; tools and scripts (no Origin header) work.\n- MCP: run \"node src/mcp/index.js\" (or set FORGE_URL and FORGE_PASSWORD to reach a shared Asset Forge) to get every\n  command as an MCP tool.",
     "license": {
       "name": "Proprietary (private project)",
@@ -325,8 +325,8 @@
                     "description": "Background colour, \"transparent\", or null for the preset default",
                     "anyOf": [
                       {
-                        "type": "string",
-                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                        "type": "string"
                       },
                       {
                         "type": "null"
@@ -340,8 +340,8 @@
                   "groundColor": {
                     "anyOf": [
                       {
-                        "type": "string",
-                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                        "type": "string"
                       },
                       {
                         "type": "null"
@@ -1177,8 +1177,8 @@
                         ]
                       },
                       "color": {
-                        "type": "string",
-                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                        "type": "string"
                       },
                       "metalness": {
                         "description": "0 = non-metal, 1 = metal",
@@ -1311,8 +1311,8 @@
                                 "maxItems": 2,
                                 "type": "array",
                                 "items": {
-                                  "type": "string",
-                                  "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                                  "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                                  "type": "string"
                                 }
                               }
                             }
@@ -1549,8 +1549,8 @@
                     ]
                   },
                   "color": {
-                    "type": "string",
-                    "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                    "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                    "type": "string"
                   },
                   "metalness": {
                     "description": "0 = non-metal, 1 = metal",
@@ -1688,8 +1688,8 @@
                             "maxItems": 2,
                             "type": "array",
                             "items": {
-                              "type": "string",
-                              "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                              "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                              "type": "string"
                             }
                           }
                         }
@@ -3857,8 +3857,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ]
@@ -3866,8 +3866,8 @@
                   "outline": {
                     "anyOf": [
                       {
-                        "type": "string",
-                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                        "type": "string"
                       },
                       {
                         "type": "null"
@@ -3987,8 +3987,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ],
@@ -4644,8 +4644,8 @@
                     "description": "Outline colour around the icon, null for none (default dark grey)",
                     "anyOf": [
                       {
-                        "type": "string",
-                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                        "type": "string"
                       },
                       {
                         "type": "null"
@@ -4805,8 +4805,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ],
@@ -4822,8 +4822,8 @@
                     "description": "Outline colour for the solid style, null for no outline (default dark)",
                     "anyOf": [
                       {
-                        "type": "string",
-                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                        "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                        "type": "string"
                       },
                       {
                         "type": "null"
@@ -5121,8 +5121,8 @@
                         "maxItems": 2,
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       },
                       "seed": {
@@ -5168,8 +5168,8 @@
                         "maxItems": 2,
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       },
                       "seed": {
@@ -5197,8 +5197,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ]
@@ -5913,8 +5913,8 @@
                     "maxItems": 64,
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                      "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                      "type": "string"
                     },
                     "description": "The colours of the style; default the most used colours in the scene"
                   },
@@ -6095,8 +6095,8 @@
                     "description": "Number of frames (default per effect, usually 6–10)"
                   },
                   "color": {
-                    "type": "string",
-                    "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                    "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                    "type": "string"
                   },
                   "palette": {
                     "description": "Palette name (see list_palettes) or colours; default the house style palette",
@@ -6107,8 +6107,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ]
@@ -6237,8 +6237,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ]
@@ -6332,8 +6332,8 @@
                       "type": "string"
                     },
                     "additionalProperties": {
-                      "type": "string",
-                      "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                      "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                      "type": "string"
                     },
                     "description": "Colour swaps: { \"#from\": \"#to\", … }"
                   },
@@ -6566,8 +6566,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ]
@@ -6666,8 +6666,8 @@
                         {
                           "anyOf": [
                             {
-                              "type": "string",
-                              "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                              "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                              "type": "string"
                             },
                             {
                               "type": "null"
@@ -6699,8 +6699,8 @@
                         {
                           "anyOf": [
                             {
-                              "type": "string",
-                              "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                              "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                              "type": "string"
                             },
                             {
                               "type": "null"
@@ -6906,8 +6906,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ]
@@ -7011,8 +7011,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       }
                     ]
@@ -7101,8 +7101,8 @@
                           "maximum": 9007199254740991
                         },
                         {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       ],
                       "items": false,
@@ -7146,8 +7146,8 @@
                           "maximum": 9007199254740991
                         },
                         {
-                          "type": "string",
-                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\""
+                          "description": "CSS colour, e.g. \"#ff8800\" or \"orange\"",
+                          "type": "string"
                         }
                       ],
                       "items": false,
@@ -7703,7 +7703,7 @@
       "post": {
         "operationId": "delete_library_item",
         "summary": "Delete from library",
-        "description": "Permanently remove an asset, image or model from the library (its file too). Objects already in scenes that use it lose it. Ask the user first.",
+        "description": "Permanently remove an asset, image or model from the library (its file too). Ask the user first. An image or model that objects in the open project still use is only removed with force: true (those objects then lose it).",
         "tags": [
           "Library"
         ],
@@ -7726,6 +7726,10 @@
                   "id": {
                     "type": "string",
                     "description": "Id of the object to work on (see get_scene; ids look like \"box_1\")"
+                  },
+                  "force": {
+                    "description": "Also remove it when objects in the open project still use it",
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -8287,7 +8291,7 @@
       "post": {
         "operationId": "make_crate",
         "summary": "Crate",
-        "description": "Build a wooden crate as one group (frame posts, beams, diagonal braces, panels, optional metal corners). Returns the group id. Vary seed for different wood tones.",
+        "description": "Build a wooden crate as one group (frame posts, beams, diagonal braces, panels, optional metal corners). Vary seed for different wood tones. Builds one group and returns its id. Common options: position, seed (different variation), name.",
         "tags": [
           "Generators"
         ],
@@ -8304,18 +8308,10 @@
                     "minimum": 0.2,
                     "maximum": 10
                   },
-                  "position": {
-                    "minItems": 3,
-                    "maxItems": 3,
-                    "type": "array",
-                    "items": {
-                      "type": "number"
-                    },
-                    "description": "Position [x, y, z] in metres; y is up, y = 0 is the ground"
-                  },
                   "woodColor": {
                     "description": "Lightest wood tone as hex, e.g. \"#c8955c\" (default warm oak)",
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^#[0-9a-fA-F]{6}$"
                   },
                   "metalCorners": {
                     "type": "boolean",
@@ -8325,17 +8321,35 @@
                     "description": "Diagonal braces on front and back (default true)",
                     "type": "boolean"
                   },
-                  "seed": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991,
-                    "description": "Whole number that picks a variation; the same seed always gives the same result"
-                  },
                   "wear": {
                     "description": "Age: 0 = new, 1 = very old and dirty",
                     "type": "number",
                     "minimum": 0,
                     "maximum": 1
+                  },
+                  "position": {
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "Position [x, y, z] in metres; y is up, y = 0 is the ground"
+                  },
+                  "rotation": {
+                    "description": "Degrees",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991,
+                    "description": "Whole number that picks a variation; the same seed always gives the same result"
                   },
                   "name": {
                     "type": "string",
@@ -9083,7 +9097,7 @@
                     "maximum": 5
                   },
                   "bladeWidth": {
-                    "description": "Default 0.09 m",
+                    "description": "Default 9% of the length (0.09 m for a 1 m sword)",
                     "type": "number",
                     "minimum": 0.01,
                     "maximum": 1
@@ -9209,10 +9223,10 @@
                     "description": "Metal of the coin"
                   },
                   "count": {
+                    "description": "More than 1 makes a stack (or a row when upright)",
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 40,
-                    "description": "Number of coins in the stack"
+                    "maximum": 40
                   },
                   "upright": {
                     "description": "Stand the coin on its edge, facing forward (for spinning pickups)",

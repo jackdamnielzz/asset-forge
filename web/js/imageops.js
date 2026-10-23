@@ -166,27 +166,33 @@ export function removeBackground(canvas, tolerance) {
   const border = [];
   for (let x = 0; x < w; x++) border.push(x, (h - 1) * w + x);
   for (let y = 0; y < h; y++) border.push(y * w, y * w + w - 1);
-  const ref = [0, 1, 2].map((k) => border.reduce((a, i) => a + d[i * 4 + k], 0) / border.length);
+  // the background colour comes from the visible border pixels only; already see-through pixels
+  // (stored as black) would otherwise make dark outlines look like background
+  const visible = border.filter((i) => d[i * 4 + 3] > 0);
+  if (!visible.length) return;
+  const ref = [0, 1, 2].map((k) => visible.reduce((a, i) => a + d[i * 4 + k], 0) / visible.length);
   const limit = tolerance * 441;
-  const near = (i) => Math.hypot(d[i * 4] - ref[0], d[i * 4 + 1] - ref[1], d[i * 4 + 2] - ref[2]) <= limit;
+  const near = (i) => d[i * 4 + 3] === 0 || Math.hypot(d[i * 4] - ref[0], d[i * 4 + 1] - ref[1], d[i * 4 + 2] - ref[2]) <= limit;
   const seen = new Uint8Array(w * h);
+  const cleared = new Uint8Array(w * h);
   const stack = border.filter(near);
   for (const i of stack) seen[i] = 1;
   while (stack.length) {
     const i = stack.pop();
+    if (d[i * 4 + 3] > 0) cleared[i] = 1;
     d[i * 4 + 3] = 0;
     const x = i % w, y = (i - x) / w;
     for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
       if (j >= 0 && !seen[j] && near(j)) { seen[j] = 1; stack.push(j); }
     }
   }
-  // soften the cut edge by one pixel
+  // soften the new cut edge by one pixel (edges that were already see-through stay as they were)
   for (let i = 0; i < w * h; i++) {
     if (d[i * 4 + 3] === 0) continue;
     const x = i % w, y = (i - x) / w;
     const clear = [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => {
       const xx = x + dx, yy = y + dy;
-      return xx >= 0 && yy >= 0 && xx < w && yy < h && d[(yy * w + xx) * 4 + 3] === 0;
+      return xx >= 0 && yy >= 0 && xx < w && yy < h && cleared[yy * w + xx];
     });
     if (clear) d[i * 4 + 3] = 160;
   }
@@ -206,7 +212,7 @@ export function seamless(canvas, blend) {
     const a = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h);
     const b = sc.getImageData(0, 0, w, h);
     const size = horizontal ? w : h;
-    const band = size * blend;
+    const band = Math.max(1, size * blend); // blend 0 would divide by zero
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const p = horizontal ? x : y;

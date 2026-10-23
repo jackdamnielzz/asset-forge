@@ -126,6 +126,13 @@ export function register(registry, { z, engine }) {
       for (const o of Object.values(engine.scene.objects)) {
         if (o.booleans) o.booleans = o.booleans.filter((b) => !all.has(b.id));
       }
+      // a cutter whose target is gone (and that cuts nothing else) becomes a normal, visible shape again
+      for (const o of Object.values(engine.scene.objects)) {
+        if (!o.cutterFor || !all.has(o.cutterFor)) continue;
+        const other = Object.values(engine.scene.objects).find((t) => t.booleans?.some((b) => b.id === o.id));
+        if (other) o.cutterFor = other.id;
+        else { delete o.cutterFor; o.visible = true; }
+      }
       for (const a of Object.values(engine.scene.animations ?? {})) a.tracks = a.tracks.filter((t) => !all.has(t.target));
       return { deleted: [...all] };
     },
@@ -153,6 +160,13 @@ export function register(registry, { z, engine }) {
       };
       const root = copy(id, src.parent);
       root.position = root.position.map((v, i) => v + offset[i]);
+      // Cuts: copied parts are cut by the copied cutters, or the hole would stay at the original's spot.
+      for (const nid of Object.values(map)) {
+        const o = engine.scene.objects[nid];
+        if (o.booleans) o.booleans = o.booleans.map((b) => ({ ...b, id: map[b.id] ?? b.id }));
+        if (o.cutterFor && map[o.cutterFor]) o.cutterFor = map[o.cutterFor];
+        else if (o.cutterFor) { delete o.cutterFor; o.visible = true; } // a copied cutter without its target is a normal shape
+      }
       // copies move like the original
       for (const a of Object.values(engine.scene.animations ?? {})) {
         for (const t of a.tracks.filter((tr) => map[tr.target])) a.tracks.push({ ...structuredClone(t), target: map[t.target] });

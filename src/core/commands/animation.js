@@ -6,14 +6,15 @@ export function register(registry, { z, engine }) {
   const anims = () => (engine.scene.animations ??= {});
   const getAnim = (name, create, duration) => {
     const all = anims();
-    if (!all[name]) {
+    if (!Object.hasOwn(all, name)) {
       if (!create) throw new CommandError(`No animation "${name}". Existing: ${Object.keys(all).join(', ') || '(none)'}`);
       all[name] = { duration: duration ?? 2, loop: true, tracks: [] };
     }
     if (duration) all[name].duration = duration;
     return all[name];
   };
-  const animName = z.string().regex(/^[a-zA-Z0-9_-]+$/).optional().describe('Animation name, default "idle". One scene can hold several (idle, open, hit...)');
+  const animName = z.string().regex(/^[a-zA-Z0-9_-]+$/)
+    .refine((n) => !['__proto__', 'constructor', 'prototype'].includes(n), 'That name is reserved; choose another.').optional().describe('Animation name, default "idle". One scene can hold several (idle, open, hit...)');
 
   registry.define({
     name: 'animate_object',

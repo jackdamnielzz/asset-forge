@@ -48,7 +48,8 @@ try {
     console.log(JSON.stringify(result, null, 2));
   } else {
     await ensureEngine();
-    const result = await call(cmd, await parseArgs(rest), 'cli');
+    const schema = (await listCommands()).find((x) => x.name === cmd)?.inputSchema;
+    const result = await call(cmd, await parseArgs(rest, schema), 'cli');
     if (result?.image) {
       if (out) {
         await fs.writeFile(out, Buffer.from(result.image, 'base64'));
@@ -64,7 +65,7 @@ try {
   process.exitCode = 1;
 }
 
-async function parseArgs(list) {
+async function parseArgs(list, schema) {
   if (list.length === 1 && list[0].trim().startsWith('{')) return JSON.parse(list[0]);
   // @file.json: read the arguments from a file (avoids shell quoting problems)
   if (list.length === 1 && list[0].startsWith('@')) return JSON.parse(await fs.readFile(list[0].slice(1), 'utf8'));
@@ -74,6 +75,8 @@ async function parseArgs(list) {
     if (eq < 0) throw new Error(`Expected key=value, got "${item}"`);
     const key = item.slice(0, eq);
     const raw = item.slice(eq + 1);
+    // text inputs stay text (name=2024 is the name "2024"); everything else may be JSON (numbers, lists, objects)
+    if (schema?.properties?.[key]?.type === 'string') { args[key] = raw; continue; }
     try { args[key] = JSON.parse(raw); } catch { args[key] = raw; }
   }
   return args;

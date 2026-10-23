@@ -13,8 +13,9 @@ export function latheGeometry(p, lowpoly) {
 export function extrudeGeometry(p) {
   const shape = new THREE.Shape(p.points.map(([x, y]) => new THREE.Vector2(x, y)));
   for (const h of p.holes ?? []) shape.holes.push(new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y))));
-  const g = new THREE.ExtrudeGeometry(shape, extrudeOptions(p.depth, p.bevel, p.bevelSegments));
-  g.translate(0, 0, -p.depth / 2);
+  const opts = extrudeOptions(p.depth, p.bevel, p.bevelSegments);
+  const g = new THREE.ExtrudeGeometry(shape, opts);
+  g.translate(0, 0, -opts.depth / 2); // the bevel adds the same amount on both sides, so this centres it
   return g;
 }
 
@@ -67,8 +68,9 @@ export function cutoutGeometry(p, loops) {
     generateTopUV: (geo, v, a, b, c) => [a, b, c].map((i) => new THREE.Vector2(v[i * 3] / w + 0.5, v[i * 3 + 1] / h + 0.5)),
     generateSideWallUV: (geo, v, a, b, c, d) => [a, b, c, d].map((i) => new THREE.Vector2(v[i * 3] / w + 0.5, v[i * 3 + 1] / h + 0.5)),
   };
-  const g = new THREE.ExtrudeGeometry(shapes, { ...extrudeOptions(p.depth, p.bevel, 2), UVGenerator: uvGen, curveSegments: 1 });
-  g.translate(0, 0, -p.depth / 2);
+  const opts = extrudeOptions(p.depth, p.bevel, 2);
+  const g = new THREE.ExtrudeGeometry(shapes, { ...opts, UVGenerator: uvGen, curveSegments: 1 });
+  g.translate(0, 0, -opts.depth / 2);
   return g;
 }
 

@@ -108,6 +108,7 @@ export class Engine extends EventEmitter {
     if (def?.category === 'generators' && result?.id && this.scene.objects[result.id]) {
       const { position, rotation, name: _n, ...rest } = args;
       this.scene.objects[result.id].recipe = { command: name, args: rest };
+      this.changed(); // the generator already announced its object; announce it again with its recipe
     }
     this.emit('log', { command: name, source: meta.source ?? 'unknown', ok: true, time: Date.now() });
     if (mutates) this.changed();
@@ -183,10 +184,12 @@ export class Engine extends EventEmitter {
     return obj;
   }
 
-  newId(base) {
+  // `reserved` is for handing out several ids before the objects are added (each id is added to it).
+  newId(base, reserved = null) {
     const clean = String(base).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'object';
     let n = 1;
-    while (this.scene.objects[`${clean}_${n}`]) n++;
+    while (this.scene.objects[`${clean}_${n}`] || reserved?.has(`${clean}_${n}`)) n++;
+    reserved?.add(`${clean}_${n}`);
     return `${clean}_${n}`;
   }
 

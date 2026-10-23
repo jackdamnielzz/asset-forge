@@ -63,7 +63,7 @@ export function pixellabTab({ el, run, state, toast, imageActions }) {
         out.append(
           el('p', {}, r.assets.length ? `${r.assets.length} picture${r.assets.length > 1 ? 's' : ''} added to your library${costText(r.usage)}.` : r.note ?? 'Done.'),
           el('div', { class: 'icon-grid' }, r.assets.map((a) => el('div', { style: 'text-align:center' },
-            el('img', { src: `/library/images/${state.library.images[a.assetId]?.file ?? ''}`, class: 'pixelated', title: a.label, style: 'width:128px;height:128px;object-fit:contain' }),
+            el('img', { src: `/library/images/${a.assetId}`, class: 'pixelated', title: a.label, style: 'width:128px;height:128px;object-fit:contain' }),
             el('div', { class: 'hint' }, a.label || '')))),
           r.assets[0] ? imageActions(r.assets[0].assetId) : null,
           el('details', {}, el('summary', { class: 'hint' }, 'What PixelLab answered'), el('pre', { class: 'hint', style: 'white-space:pre-wrap;max-height:200px;overflow:auto' }, JSON.stringify(r.response, null, 1))));

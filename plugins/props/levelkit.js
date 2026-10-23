@@ -1,4 +1,5 @@
 import { defineGenerator } from './kit.js';
+import { MATERIAL_PRESETS } from '../../src/shared/presets.js';
 
 // Materials per style: floor, wall, trim (frames, beams) and accent (optional glow strips).
 const STYLES = {
@@ -42,7 +43,13 @@ export function register(registry, z, engine) {
     async build(a, k, root) {
       const g = a.gridSize ?? 2, h = a.wallHeight ?? 2.6, t = a.wallThickness ?? 0.25, wear = a.wear ?? 0.2;
       const st = STYLES[a.style ?? 'dungeon'];
-      const mat = (m) => ({ ...m, wear: Math.max(wear, m.wear ?? 0) });
+      // the seed gives the stone, wood and metal surfaces a different look (one seed per material, so pieces still match)
+      const seeds = new Map();
+      const mat = (m) => {
+        const patterned = m.pattern || MATERIAL_PRESETS[m.preset]?.pattern;
+        if (!seeds.has(m)) seeds.set(m, k.rand() * 1000 | 0);
+        return { ...m, wear: Math.max(wear, m.wear ?? 0), ...(patterned ? { pattern: { ...(m.pattern ?? {}), seed: seeds.get(m) } } : {}) };
+      };
       let slot = 0;
       const piece = (name) => k.group(root, name, [slot++ * (g + 1), 0, 0]);
       const wallBox = (p, name = 'wall') => k.part(p, 'box', name, [0, h / 2, 0], { width: g, height: h, depth: t, bevel: 0.02 }, mat(st.wall));
@@ -61,7 +68,8 @@ export function register(registry, z, engine) {
 
       // wall with a doorway and a frame
       p = await piece('wall_door');
-      const dw = Math.min(1.0, g * 0.55), dh = Math.min(2.1, h * 0.82);
+      // the doorway and its frame always fit inside the wall, also for small grids and low walls
+      const dw = Math.min(1.0, g * 0.55, g - 0.3), dh = Math.min(2.1, h * 0.82);
       const wd = await wallBox(p);
       const doorHole = await k.part(p, 'box', 'door_cutter', [0, dh / 2 - 0.01, 0], { width: dw, height: dh, depth: t * 3, bevel: 0 }, {});
       await k.cut(wd, doorHole);
@@ -70,7 +78,7 @@ export function register(registry, z, engine) {
 
       // wall with a window and a sill
       p = await piece('wall_window');
-      const ws = Math.min(0.9, g * 0.45), wy = h * 0.55;
+      const ws = Math.min(0.9, g * 0.45, h * 0.35), wy = h * 0.55;
       const ww = await wallBox(p);
       const winHole = await k.part(p, 'box', 'window_cutter', [0, wy, 0], { width: ws, height: ws, depth: t * 3, bevel: 0 }, {});
       await k.cut(ww, winHole);

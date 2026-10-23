@@ -35,7 +35,10 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
   `web/js/tileset.js` + `src/core/commands/tiles.js` (corner autotiles, Godot TileSet). Palettes: `src/shared/palettes.js`.
 - Generators get a `recipe` automatically (set in `Engine.execute` for category "generators"). Recipes, variations,
   quality check and house styles are in `src/core/commands/superpowers.js`; the quality check measures via the
-  `inspect` bridge request. Saved recipes/styles live in `workspace/library/recipes|styles/`.
+  `inspect` bridge request. Built-in house styles are in `src/shared/housestyles.js`; saved recipes/styles live in
+  `workspace/library/recipes|styles/`.
+- Colours: the zod `color` type (commands/common.js) stores every colour as "#rrggbb" via `toHex()` in
+  `src/shared/colors.js` (names, "#rgb", rgb()); "transparent" stays as is for backgrounds.
 - Full PixelLab support (`src/core/pixellab.js`) is driven by https://api.pixellab.ai/v2/openapi.json, cached for a day
   in workspace/cache. Fields that are Base64Image are marked `x-image`; library ids / { render } are converted.
   Background jobs are polled via /background-jobs/{id}; results are found by walking the response (base64, data URLs,

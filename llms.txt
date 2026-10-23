@@ -1,6 +1,6 @@
 # Asset Forge
 
-> An AI-controllable 3D and pixel-art asset creation tool (version 0.1.0). 107 commands over a simple HTTP API and MCP.
+> An AI-controllable 3D and pixel-art asset creation tool (version 0.2.0). 107 commands over a simple HTTP API and MCP.
 
 Asset Forge is a 3D and pixel-art asset creation tool that AIs drive completely through commands.
 A person may be watching the window live while you work.

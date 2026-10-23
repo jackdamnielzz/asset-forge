@@ -65,7 +65,11 @@ export function register(registry, { z, engine }) {
           const i = (y * w + x) * 4;
           if (px[i + 3] < 128) continue;
           const hex = `#${[px[i], px[i + 1], px[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-          if (!index.has(hex)) { if (palette.length >= 256) continue; index.set(hex, palette.length); palette.push(hex); }
+          if (!index.has(hex)) {
+            // voxels hold at most 256 colours: after that, use the closest colour already in use (no holes)
+            if (palette.length < 256) { index.set(hex, palette.length); palette.push(hex); }
+            else index.set(hex, closest(palette, px[i], px[i + 1], px[i + 2]));
+          }
           for (let d = 0; d < depth; d++) voxels.push([x - Math.floor(w / 2), h - 1 - y, d - Math.floor(depth / 2), index.get(hex)]);
         }
       }
@@ -88,4 +92,15 @@ export function register(registry, { z, engine }) {
       return { id: r.id, blocks: data.voxels.length, colors: data.palette.length };
     },
   });
+}
+
+// Index of the palette colour nearest to r, g, b.
+function closest(palette, r, g, b) {
+  let best = 0, bd = Infinity;
+  palette.forEach((c, i) => {
+    const n = parseInt(c.slice(1), 16);
+    const d = ((n >> 16) - r) ** 2 + (((n >> 8) & 255) - g) ** 2 + ((n & 255) - b) ** 2;
+    if (d < bd) { bd = d; best = i; }
+  });
+  return best;
 }

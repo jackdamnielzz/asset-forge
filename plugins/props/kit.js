@@ -42,6 +42,7 @@ export function kit(engine, ctx, seed) {
     cut: (target, cutter, op = 'subtract') => engine.execute('cut_object', { target, cutter, op }, ctx.meta),
     repeat: (id, args) => engine.execute('repeat_object', { id, ...args }, ctx.meta),
     mirror: (id, args) => engine.execute('mirror_object', { id, ...args }, ctx.meta),
+    update: (id, args) => engine.execute('update_object', { id, ...args }, ctx.meta),
     shade,
   };
 }

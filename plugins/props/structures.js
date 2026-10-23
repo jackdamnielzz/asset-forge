@@ -14,14 +14,16 @@ export function register(registry, z, engine) {
     }),
     async build(a, k, root) {
       const H = a.height ?? 2.6, s = H / 2.6;
-      const metal = { preset: 'worn_metal', color: a.metalColor ?? '#3b4047', roughness: 0.5, wear: a.wear ?? 0.3, pattern: { scale: 0.5 } };
+      const metal = { preset: 'worn_metal', color: a.metalColor ?? '#3b4047', roughness: 0.5, wear: a.wear ?? 0.3, pattern: { scale: 0.5, seed: k.rand() * 1000 | 0 } };
+      // the seed varies the base, the cap and the ring
+      const baseW = k.range(0.85, 1.15), capH = k.range(0.75, 1.3), ringY = k.range(0.18, 0.4);
       const light = a.lightColor ?? '#ffcf80';
       await k.part(root, 'lathe', 'base', [0, 0, 0], {
-        points: [[0, 0], [0.17, 0], [0.17, 0.05], [0.12, 0.09], [0.095, 0.3], [0.065, 0.36], [0.05, 0.4], [0, 0.4]].map(([r, y]) => [r * s, y * s]), segments: 40,
+        points: [[0, 0], [0.17, 0], [0.17, 0.05], [0.12, 0.09], [0.095, 0.3], [0.065, 0.36], [0.05, 0.4], [0, 0.4]].map(([r, y], i) => [r * s * (i < 4 ? baseW : 1), y * s]), segments: 40,
       }, metal);
       const top = H - 0.48 * s;
       await k.part(root, 'cylinder', 'pole', [0, (0.4 * s + top) / 2, 0], { radiusTop: 0.032 * s, radiusBottom: 0.04 * s, height: top - 0.4 * s, segments: 24 }, metal);
-      await k.part(root, 'torus', 'ring', [0, top - 0.25 * s, 0], { radius: 0.042 * s, tube: 0.012 * s, segments: 24 }, metal, { rotation: [90, 0, 0] });
+      await k.part(root, 'torus', 'ring', [0, top - ringY * s, 0], { radius: 0.042 * s, tube: 0.012 * s, segments: 24 }, metal, { rotation: [90, 0, 0] });
       await k.part(root, 'cylinder', 'lantern_base', [0, top + 0.015 * s, 0], { radiusTop: 0.1 * s, radiusBottom: 0.07 * s, height: 0.04 * s, segments: 4 }, metal, { rotation: [0, 45, 0] });
       const gh = 0.26 * s, gy = top + 0.035 * s + gh / 2;
       await k.part(root, 'box', 'glass', [0, gy, 0], { width: 0.16 * s, height: gh, depth: 0.16 * s, bevel: 0.004 * s },
@@ -31,8 +33,8 @@ export function register(registry, z, engine) {
       for (const x of [-1, 1]) for (const zz of [-1, 1]) {
         await k.part(root, 'box', 'frame', [x * 0.08 * s, gy, zz * 0.08 * s], { width: 0.016 * s, height: gh + 0.01 * s, depth: 0.016 * s, bevel: 0.003 * s }, metal);
       }
-      await k.part(root, 'cone', 'cap', [0, gy + gh / 2 + 0.07 * s, 0], { radius: 0.15 * s, height: 0.14 * s, segments: 4 }, metal, { rotation: [0, 45, 0] });
-      await k.part(root, 'sphere', 'finial', [0, gy + gh / 2 + 0.15 * s, 0], { radius: 0.022 * s, segments: 16 }, metal);
+      await k.part(root, 'cone', 'cap', [0, gy + gh / 2 + 0.07 * s * capH, 0], { radius: 0.15 * s, height: 0.14 * s * capH, segments: 4 }, metal, { rotation: [0, 45, 0] });
+      await k.part(root, 'sphere', 'finial', [0, gy + gh / 2 + 0.15 * s * capH, 0], { radius: 0.022 * s, segments: 16 }, metal);
     },
   });
 

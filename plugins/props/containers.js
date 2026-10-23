@@ -50,47 +50,49 @@ export function register(registry, z, engine) {
       const wood = a.woodColor ?? '#b0763f';
       const metalMat = { preset: 'worn_metal', color: a.metalColor ?? '#6b6f76', wear: Math.max(0.25, wear), pattern: { scale: 0.4 } };
       const goldMat = { preset: 'gold', color: '#f2b948' };
-      const woodMat = { preset: 'floor_planks', color: wood, wear, pattern: { scale: h * 1.6, seed: 7 } };
-      const t = 0.022; // wall thickness
+      const woodMat = { preset: 'floor_planks', color: wood, wear, pattern: { scale: h * 1.6, seed: k.rand() * 1000 | 0 } };
+      // metal parts and walls grow with the chest (m = 1 for the default size)
+      const m = Math.min(w, d) / 0.55;
+      const t = 0.022 * m; // wall thickness
 
       // body: a box with the inside cut away
-      const body = await k.part(root, 'box', 'body', [0, h / 2, 0], { width: w, height: h, depth: d, bevel: 0.012 }, woodMat);
-      const hollow = await k.part(root, 'box', 'hollow', [0, h / 2 + t, 0], { width: w - 2 * t, height: h, depth: d - 2 * t, bevel: 0.004 }, woodMat);
+      const body = await k.part(root, 'box', 'body', [0, h / 2, 0], { width: w, height: h, depth: d, bevel: 0.012 * m }, woodMat);
+      const hollow = await k.part(root, 'box', 'hollow', [0, h / 2 + t, 0], { width: w - 2 * t, height: h, depth: d - 2 * t, bevel: 0.004 * m }, woodMat);
       await k.cut(body, hollow);
 
       // metal bands and corners on the body
       for (const x of [-w * 0.32, w * 0.32]) {
-        await k.part(root, 'box', 'band', [x, h / 2, 0], { width: 0.05, height: h + 0.006, depth: d + 0.012, bevel: 0.004 }, metalMat);
+        await k.part(root, 'box', 'band', [x, h / 2, 0], { width: 0.05 * m, height: h + 0.006 * m, depth: d + 0.012 * m, bevel: 0.004 * m }, metalMat);
       }
       for (const x of [-1, 1]) for (const zz of [-1, 1]) {
-        await k.part(root, 'box', 'corner', [x * (w / 2 - 0.025), 0.035, zz * (d / 2 - 0.025)], { width: 0.062, height: 0.07, depth: 0.062, bevel: 0.006 }, metalMat);
+        await k.part(root, 'box', 'corner', [x * (w / 2 - 0.025 * m), 0.035 * m, zz * (d / 2 - 0.025 * m)], { width: 0.062 * m, height: 0.07 * m, depth: 0.062 * m, bevel: 0.006 * m }, metalMat);
       }
 
       // lid, hinged at the back: the lid group's origin is the hinge
       const hinge = await k.group(root, 'lid', [0, h, -d / 2], [a.open ? -105 : 0, 0, 0]);
       const lidParams = { radiusTop: d / 2, radiusBottom: d / 2, height: w, segments: 40, thetaLength: 180 };
       const lid = await k.part(hinge, 'cylinder', 'lid_top', [0, 0, d / 2], lidParams,
-        { preset: 'floor_planks', color: wood, wear, pattern: { scale: d * 1.2, seed: 9 } }, { rotation: [0, 0, 90] });
+        { preset: 'floor_planks', color: wood, wear, pattern: { scale: d * 1.2, seed: k.rand() * 1000 | 0 } }, { rotation: [0, 0, 90] });
       const lidHollow = await k.part(hinge, 'cylinder', 'lid_hollow', [0, 0, d / 2], { ...lidParams, radiusTop: d / 2 - t, radiusBottom: d / 2 - t, height: w - 2 * t }, woodMat, { rotation: [0, 0, 90] });
       await k.cut(lid, lidHollow);
       for (const x of [-w * 0.32, w * 0.32]) {
-        await k.part(hinge, 'cylinder', 'lid_band', [x, 0, d / 2], { radiusTop: d / 2 + 0.006, radiusBottom: d / 2 + 0.006, height: 0.05, segments: 40, thetaLength: 180 }, metalMat, { rotation: [0, 0, 90] });
+        await k.part(hinge, 'cylinder', 'lid_band', [x, 0, d / 2], { radiusTop: d / 2 + 0.006 * m, radiusBottom: d / 2 + 0.006 * m, height: 0.05 * m, segments: 40, thetaLength: 180 }, metalMat, { rotation: [0, 0, 90] });
       }
 
       // lock plate with keyhole, on the front of the lid edge
-      const plate = await k.part(hinge, 'box', 'lock', [0, 0.0, d + 0.012], { width: 0.1, height: 0.12, depth: 0.022, bevel: 0.006 }, goldMat);
-      const hole = await k.part(hinge, 'cylinder', 'keyhole', [0, 0.012, d + 0.02], { radiusTop: 0.012, radiusBottom: 0.012, height: 0.05, segments: 20 }, goldMat, { rotation: [90, 0, 0] });
-      const slot = await k.part(hinge, 'box', 'keyslot', [0, -0.012, d + 0.02], { width: 0.01, height: 0.035, depth: 0.05, bevel: 0 }, goldMat);
+      const plate = await k.part(hinge, 'box', 'lock', [0, 0.0, d + 0.012 * m], { width: 0.1 * m, height: 0.12 * m, depth: 0.022 * m, bevel: 0.006 * m }, goldMat);
+      const hole = await k.part(hinge, 'cylinder', 'keyhole', [0, 0.012 * m, d + 0.02 * m], { radiusTop: 0.012 * m, radiusBottom: 0.012 * m, height: 0.05 * m, segments: 20 }, goldMat, { rotation: [90, 0, 0] });
+      const slot = await k.part(hinge, 'box', 'keyslot', [0, -0.012 * m, d + 0.02 * m], { width: 0.01 * m, height: 0.035 * m, depth: 0.05 * m, bevel: 0 }, goldMat);
       await k.cut(plate, hole);
       await k.cut(plate, slot);
 
       if (a.treasure !== false) {
-        const pile = await k.group(root, 'treasure', [0, h - 0.07, 0]);
+        const pile = await k.group(root, 'treasure', [0, h - 0.07 * m, 0]);
         await k.part(pile, 'rock', 'gold_heap', [0, -0.02, 0], { radius: Math.min(w, d) * 0.42, detail: 3, roughness: 0.25, flatten: 0.6, sharpness: 0, seed: 5 },
           { preset: 'gold', color: '#e9ad3a', roughness: 0.35 }, { scale: [(w - 2 * t) / (Math.min(w, d) * 0.85), 0.5, (d - 2 * t) / (Math.min(w, d) * 0.85)] });
         for (let i = 0; i < 9; i++) {
-          await k.part(pile, 'cylinder', 'coin', [k.range(-w * 0.32, w * 0.32), 0.05 + k.rand() * 0.03, k.range(-d * 0.3, d * 0.3)],
-            { radiusTop: 0.03, radiusBottom: 0.03, height: 0.006, segments: 24 }, goldMat, { rotation: [k.range(-40, 40), 0, k.range(-40, 40)] });
+          await k.part(pile, 'cylinder', 'coin', [k.range(-w * 0.32, w * 0.32), (0.05 + k.rand() * 0.03) * m, k.range(-d * 0.3, d * 0.3)],
+            { radiusTop: 0.03 * m, radiusBottom: 0.03 * m, height: 0.006 * m, segments: 24 }, goldMat, { rotation: [k.range(-40, 40), 0, k.range(-40, 40)] });
         }
       }
     },

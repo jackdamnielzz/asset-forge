@@ -219,6 +219,8 @@ export function register(registry, { z, engine }) {
       const fw = frameWidth, fh = frameHeight ?? frameWidth;
       if (width % fw || height % fh) throw new CommandError(`The picture (${width}x${height}) does not divide into ${fw}x${fh} frames.`);
       const cols = width / fw, rows = height / fh;
+      // the Aseprite format stores counts and sizes as 16-bit numbers
+      if (cols * rows > 65535 || fw > 65535 || fh > 65535) throw new CommandError(`That would be ${cols * rows} frames; Aseprite files hold at most 65535. Use a bigger frameWidth.`);
       const src = Buffer.from(rgba, 'base64');
       const frames = [];
       const tags = [];

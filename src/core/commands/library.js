@@ -102,10 +102,16 @@ export function register(registry, { z, engine }) {
     name: 'delete_library_item',
     title: 'Delete from library',
     category: 'library',
-    description: 'Permanently remove an asset, image or model from the library (its file too). Objects already in scenes that use it lose it. Ask the user first.',
-    input: z.object({ kind: z.enum(kinds), id: z.string() }),
-    async handler({ kind, id }) {
+    description:
+      'Permanently remove an asset, image or model from the library (its file too). Ask the user first. ' +
+      'An image or model that objects in the open project still use is only removed with force: true (those objects then lose it).',
+    input: z.object({ kind: z.enum(kinds), id: z.string(), force: z.boolean().optional().describe('Also remove it when objects in the open project still use it') }),
+    async handler({ kind, id, force = false }) {
       const { list, e } = entry(kind, id);
+      const users = Object.values(engine.scene.objects)
+        .filter((o) => (kind === 'image' && (o.material?.texture === id || o.params?.assetId === id)) || (kind === 'model' && o.params?.assetId === id))
+        .map((o) => o.id);
+      if (users.length && !force) throw new CommandError(`"${id}" is still used by ${users.join(', ')}. Pass force: true to remove it anyway.`);
       const files = kind === 'asset'
         ? [path.join(thumbs, e.thumb), path.join(engine.paths.library, 'recipes', `${e.recipe}.json`)]
         : kind === 'image' ? [path.join(engine.paths.images, e.file)] : [path.join(engine.paths.library, 'models', e.file)];
@@ -113,7 +119,7 @@ export function register(registry, { z, engine }) {
       delete list[id];
       if (kind === 'asset') delete lib.recipes?.[e.recipe];
       await saveLib();
-      return { deleted: id };
+      return { deleted: id, ...(users.length ? { brokenObjects: users } : {}) };
     },
   });
 }

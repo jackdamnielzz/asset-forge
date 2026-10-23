@@ -145,6 +145,11 @@ export class Providers {
     const headers = { Authorization: `Key ${c.key}` };
     const job = await api(`${c.baseUrl}/${m}`, { method: 'POST', headers, body });
     if (!job.status_url || !job.response_url) throw new CommandError(`fal.ai did not queue the job: ${JSON.stringify(job).slice(0, 200)}`);
+    // the key only goes to the service's own address, even if a reply points somewhere else
+    const own = new URL(c.baseUrl).host;
+    for (const u of [job.status_url, job.response_url]) {
+      if (new URL(u).host !== own) throw new CommandError(`fal.ai sent a status address on another host (${new URL(u).host}); stopped so your key is not sent there.`);
+    }
     await poll(async () => {
       const s = await api(job.status_url, { headers });
       onStatus?.(s.status);

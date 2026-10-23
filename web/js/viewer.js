@@ -140,7 +140,7 @@ export class SceneView {
       // groups and imported models are containers; everything else is one mesh
       const isGroup = o.type === 'group' || o.type === 'model';
       if (!node || (node.obj.isGroup !== isGroup)) {
-        if (node) node.obj.removeFromParent();
+        if (node) disposeNode(node);
         node = { obj: isGroup ? new THREE.Group() : new THREE.Mesh(), geoKey: null, matKey: null, outline: null };
         node.obj.userData.forgeId = id;
         this.nodes.set(id, node);
@@ -158,7 +158,7 @@ export class SceneView {
           edgeWear: o.type === 'box' && m.wear > 0 ? m.wear : 0,
         };
         const resource = this.resourceFor(o);
-        const geoKey = JSON.stringify([o.type, o.params, geoOpts.lowpoly, geoOpts.uvScale, geoOpts.uvScale ? o.scale : 0, geoOpts.edgeWear, !!resource]);
+        const geoKey = JSON.stringify([o.type, o.params, geoOpts.lowpoly, geoOpts.uvScale, geoOpts.uvScale || o.type === 'rock' ? o.scale : 0, geoOpts.edgeWear, !!resource]);
         if (geoKey !== node.geoKey) {
           if (obj.geometry !== node.base) obj.geometry?.dispose();
           node.base?.dispose();
@@ -186,8 +186,7 @@ export class SceneView {
     }
     for (const [id, node] of this.nodes) {
       if (!seen.has(id)) {
-        node.obj.removeFromParent();
-        node.obj.geometry?.dispose();
+        disposeNode(node);
         this.nodes.delete(id);
       }
     }
@@ -380,7 +379,8 @@ export class SceneView {
       colors: absolute ? p.colors : null, wear: Math.round((m.wear ?? 0) * 20) / 20,
     };
     const key = JSON.stringify(spec);
-    if (this.patternCache.has(key)) return this.patternCache.get(key);
+    const cached = remember(this.patternCache, key);
+    if (cached) return cached;
     const out = generatePattern(spec, 512);
     const tex = (canvas, srgb) => {
       const t = new THREE.CanvasTexture(canvas);
@@ -391,7 +391,7 @@ export class SceneView {
       return t;
     };
     const result = { map: tex(out.color, true), orm: tex(out.orm, false), normal: tex(out.normal, false) };
-    this.patternCache.set(key, result);
+    store(this.patternCache, key, result, PATTERN_CACHE_SIZE, (r) => { r.map.dispose(); r.orm.dispose(); r.normal.dispose(); });
     return result;
   }
 
@@ -411,7 +411,8 @@ export class SceneView {
 
   loadTexture(asset, repeat) {
     const key = `${asset.file}|${repeat.join(',')}`;
-    if (this.textureCache.has(key)) return this.textureCache.get(key);
+    const cached = remember(this.textureCache, key);
+    if (cached) return cached;
     const tex = new THREE.Texture();
     const p = new Promise((resolve) => {
       const img = new Image();
@@ -425,7 +426,7 @@ export class SceneView {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.fromArray(repeat);
     tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    this.textureCache.set(key, tex);
+    store(this.textureCache, key, tex, TEXTURE_CACHE_SIZE, (t) => t.dispose());
     return tex;
   }
 
@@ -595,68 +596,69 @@ export class SceneView {
     await this.whenReady();
     this.resetPose();
     const env = this.data.environment;
-    const restoreIsolation = isolate && target ? this.isolate(target) : null;
-    // the person joins the content for this picture so the framing includes it
-    const refWasVisible = this.sizeRef.visible;
-    if (sizeReference) {
-      const host = (target && this.nodes.get(target)?.obj) || this.content;
-      this.placeSizeReference(host);
-      this.sizeRef.visible = true;
-      host.attach(this.sizeRef);
-    } else this.sizeRef.visible = false;
-    const ss = width * height <= 1024 * 1024 ? 2 : 1;
-    const cam = new THREE.PerspectiveCamera(35, width / height, 0.01, 500);
-    if (view === 'camera') {
-      cam.position.fromArray(this.data.camera.position);
-      cam.lookAt(new THREE.Vector3().fromArray(this.data.camera.target));
-    } else {
-      this.frameCamera(cam, view, target, padding);
-    }
-
     const prevSize = this.renderer.getSize(new THREE.Vector2());
     const prevRatio = this.renderer.getPixelRatio();
     const helpersVisible = this.helpers.visible;
-    this.helpers.visible = false;
-    if (background !== undefined) this.setBackground(background);
-    if (ground !== undefined) this.ground.visible = ground;
-    const transparent = this.background === 'transparent';
+    const refWasVisible = this.sizeRef.visible;
+    const restoreIsolation = isolate && target ? this.isolate(target) : null;
+    // everything changed for this picture is put back afterwards, also when drawing fails
+    try {
+      // the person joins the content for this picture so the framing includes it
+      if (sizeReference) {
+        const host = (target && this.nodes.get(target)?.obj) || this.content;
+        this.placeSizeReference(host);
+        this.sizeRef.visible = true;
+        host.attach(this.sizeRef);
+      } else this.sizeRef.visible = false;
+      const ss = width * height <= 1024 * 1024 ? 2 : 1;
+      const cam = new THREE.PerspectiveCamera(35, width / height, 0.01, 500);
+      if (view === 'camera') {
+        cam.position.fromArray(this.data.camera.position);
+        cam.lookAt(new THREE.Vector3().fromArray(this.data.camera.target));
+      } else {
+        this.frameCamera(cam, view, target, padding);
+      }
 
-    this.renderer.setPixelRatio(1);
-    this.renderer.setSize(width * ss, height * ss, false);
-    const fx = { ...this.effects };
-    if (transparent) fx.bloom = false; // glow cannot be stored in see-through pixels
-    const use = this.usesEffects(fx, transparent);
-    this.prepareBackground(use);
-    if (use) {
-      const c = createComposer(this.renderer, this.scene, cam, width * ss, height * ss, fx, this.sceneRadius);
-      c.composer.render();
-      disposeComposer(c);
-    } else {
-      this.renderer.render(this.scene, cam);
+      this.helpers.visible = false;
+      if (background !== undefined) this.setBackground(background);
+      if (ground !== undefined) this.ground.visible = ground;
+      const transparent = this.background === 'transparent';
+
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(width * ss, height * ss, false);
+      const fx = { ...this.effects };
+      if (transparent) fx.bloom = false; // glow cannot be stored in see-through pixels
+      const use = this.usesEffects(fx, transparent);
+      this.prepareBackground(use);
+      if (use) {
+        const c = createComposer(this.renderer, this.scene, cam, width * ss, height * ss, fx, this.sceneRadius);
+        try { c.composer.render(); } finally { disposeComposer(c); }
+      } else {
+        this.renderer.render(this.scene, cam);
+      }
+
+      const out = document.createElement('canvas');
+      out.width = width;
+      out.height = height;
+      const ctx = out.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(this.canvas, 0, 0, width, height);
+      if (outline && transparent) {
+        const img = ctx.getImageData(0, 0, width, height);
+        softOutline(img, outline.color, outline.width);
+        ctx.putImageData(img, 0, 0);
+      }
+      return { png: out.toDataURL('image/png').split(',')[1], width, height };
+    } finally {
+      this.helpers.visible = helpersVisible;
+      this.setBackground(env.background ?? LIGHTING_PRESETS[env.lighting]?.background);
+      this.ground.visible = env.ground !== false;
+      this.renderer.setPixelRatio(prevRatio);
+      this.renderer.setSize(prevSize.x, prevSize.y, false);
+      restoreIsolation?.();
+      this.scene.attach(this.sizeRef);
+      this.sizeRef.visible = refWasVisible;
     }
-
-    const out = document.createElement('canvas');
-    out.width = width;
-    out.height = height;
-    const ctx = out.getContext('2d');
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(this.canvas, 0, 0, width, height);
-    if (outline && transparent) {
-      const img = ctx.getImageData(0, 0, width, height);
-      softOutline(img, outline.color, outline.width);
-      ctx.putImageData(img, 0, 0);
-    }
-
-    this.helpers.visible = helpersVisible;
-    this.setBackground(env.background ?? LIGHTING_PRESETS[env.lighting]?.background);
-    this.ground.visible = env.ground !== false;
-    this.renderer.setPixelRatio(prevRatio);
-    this.renderer.setSize(prevSize.x, prevSize.y, false);
-    restoreIsolation?.();
-    this.scene.attach(this.sizeRef);
-    this.sizeRef.visible = refWasVisible;
-
-    return { png: out.toDataURL('image/png').split(',')[1], width, height };
   }
 
   // Measurements for the quality check: world-space bounds and triangle counts, per object
@@ -738,7 +740,32 @@ export class SceneView {
 
   // Sprite sheet: rows = (animation ×) direction, columns = frames. Besides the colour sheet
   // it can make a normal map (for 2D lights) and a glow map from exactly the same frames.
-  async renderSprites({
+  // Sprite sheets never show the size person, and everything is put back if drawing fails halfway.
+  async renderSprites(opts) {
+    const refWasVisible = this.sizeRef.visible;
+    const prevSize = this.renderer.getSize(new THREE.Vector2());
+    const prevRatio = this.renderer.getPixelRatio();
+    const helpersVisible = this.helpers.visible;
+    this.sizeRef.visible = false;
+    try {
+      return await this.drawSprites(opts);
+    } catch (err) {
+      const env = this.data.environment;
+      this.scene.overrideMaterial = null;
+      this.resetPose();
+      this.helpers.visible = helpersVisible;
+      this.setBackground(env.background ?? LIGHTING_PRESETS[env.lighting]?.background);
+      this.ground.visible = env.ground !== false;
+      this.renderer.setPixelRatio(prevRatio);
+      this.renderer.setSize(prevSize.x, prevSize.y, false);
+      this.update(this.data); // restores what isolation hid
+      throw err;
+    } finally {
+      this.sizeRef.visible = refWasVisible;
+    }
+  }
+
+  async drawSprites({
     target, directions = 8, frameSize = 64, animations = [], frames = 1, elevation = 30, azimuthOffset = 0,
     pixelArt = true, colors = 24, palette, dither = 0, outline = '#16171b', outlineStyle = 'solid', cleanup = true,
     pixelsPerMetre = null, groundShadow = false, maps = [], keepCanvas = false,
@@ -952,7 +979,7 @@ export class SceneView {
         const pos = [], quat = [], scl = [];
         const q = new THREE.Quaternion(), e = new THREE.Euler();
         for (let i = 0; i <= n; i++) {
-          const off = sampleObject(anim, id, (i / n) % 1);
+          const off = sampleObject(anim, id, i / n);
           const o = off ?? { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] };
           pos.push(base.p.x + o.position[0], base.p.y + o.position[1], base.p.z + o.position[2]);
           e.set(base.r.x + o.rotation[0] * DEG, base.r.y + o.rotation[1] * DEG, base.r.z + o.rotation[2] * DEG);
@@ -973,6 +1000,39 @@ export class SceneView {
 
   objectById(id) {
     return this.nodes.get(id)?.obj ?? null;
+  }
+}
+
+// Generated surfaces and pictures are kept for reuse, but only the most recently used ones, so a long
+// session (e.g. many variations) does not keep growing. Disposing frees graphics memory only: a texture
+// that a material still uses is simply uploaded again when it is next drawn.
+const PATTERN_CACHE_SIZE = 48;
+const TEXTURE_CACHE_SIZE = 64;
+
+function remember(cache, key) {
+  const value = cache.get(key);
+  if (value === undefined) return undefined;
+  cache.delete(key);
+  cache.set(key, value); // now the most recently used
+  return value;
+}
+
+function store(cache, key, value, max, dispose) {
+  cache.set(key, value);
+  while (cache.size > max) {
+    const [oldest, old] = cache.entries().next().value;
+    cache.delete(oldest);
+    dispose(old);
+  }
+}
+
+// Remove an object's 3D node and free its shapes and material (cached textures are shared, so they stay).
+function disposeNode(node) {
+  node.obj.removeFromParent();
+  if (node.obj.isMesh) {
+    if (node.obj.geometry !== node.base) node.obj.geometry?.dispose();
+    node.base?.dispose();
+    node.obj.material?.dispose?.();
   }
 }
 
@@ -1126,7 +1186,7 @@ function metricUVs(g, type, p, scale, s) {
     const nx = Math.abs(nor.getX(i)), ny = Math.abs(nor.getY(i)), nz = Math.abs(nor.getZ(i));
     let u, v;
     switch (type) {
-      case 'box': case 'rock':
+      case 'box': case 'rock': case 'voxels':
         if (nx >= ny && nx >= nz) { u = z; v = y; } else if (ny >= nz) { u = x; v = z; } else { u = x; v = y; }
         break;
       case 'lathe': u = uv.getX(i) * Math.PI * 2 * latheR * avg; v = uv.getY(i) * latheLen * avg; break;

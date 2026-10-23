@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { CommandError } from './registry.js';
 
 // Version history per project and whole-workspace backups.
 // - A version is a copy of the project file. One is made automatically at most every few
@@ -67,13 +68,25 @@ export class History {
 
   // Copy projects, library and history to <workspace>-backups/<date>.
   async backup(target) {
-    const base = target ?? this.backups;
+    const base = path.resolve(target ?? this.backups);
+    const PARTS = ['projects', 'library', 'history'];
+    // a backup inside one of the folders it copies would copy itself over and over
+    const within = (dir) => { const r = path.relative(dir, base); return !r || (!r.startsWith('..') && !path.isAbsolute(r)); };
+    if (base === path.resolve(this.workspace) || PARTS.some((part) => within(path.resolve(this.workspace, part)))) {
+      throw new CommandError('A backup cannot go into the workspace itself or its projects, library or history folder; choose another folder.');
+    }
     const dest = path.join(base, new Date().toISOString().replace(/[:.]/g, '-'));
     await fs.mkdir(dest, { recursive: true });
-    for (const part of ['projects', 'library', 'history']) {
+    const problems = [];
+    for (const part of PARTS) {
       const src = path.join(this.workspace, part);
-      try { await fs.cp(src, path.join(dest, part), { recursive: true }); } catch {}
+      try {
+        await fs.cp(src, path.join(dest, part), { recursive: true });
+      } catch (err) {
+        if (err.code !== 'ENOENT') problems.push(`${part}: ${err.message}`); // a missing part is simply empty
+      }
     }
+    if (problems.length) throw new CommandError(`The backup in ${dest} is incomplete: ${problems.join('; ')}`);
     if (!target) {
       const all = (await fs.readdir(base)).sort();
       for (const old of all.slice(0, Math.max(0, all.length - KEEP_BACKUPS))) await fs.rm(path.join(base, old), { recursive: true, force: true });

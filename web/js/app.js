@@ -166,6 +166,8 @@ function startWindow() {
     }
     if (state.selected && !scene.objects[state.selected]) state.selected = null;
     for (const id of state.multi) if (!scene.objects[id]) state.multi.delete(id);
+    // one object left of a multi-selection is a normal selection
+    if (state.multi.size === 1) { state.selected = [...state.multi][0]; state.multi.clear(); }
     syncSelection();
     document.getElementById('project-name').textContent = scene.name;
     document.getElementById('lighting-select').value = scene.environment.lighting;
@@ -466,10 +468,13 @@ function slider(value, min, max, step, onInput, onCommit) {
 
 function renderProps() {
   const root = document.getElementById('props');
-  // Don't rebuild while the user is typing in the panel.
-  if (root.contains(document.activeElement) && document.activeElement.matches('input[type=text], input[type=number], textarea')) return;
-  root.innerHTML = '';
   const o = state.selected && state.scene.objects[state.selected];
+  const showing = state.multi.size > 1 ? 'multi' : o ? o.id : 'scene';
+  // Don't rebuild while the user is typing in the panel, unless what it shows is gone (deleted, undone).
+  const typing = root.contains(document.activeElement) && document.activeElement.matches('input[type=text], input[type=number], textarea');
+  if (typing && root.dataset.showing === showing) return;
+  root.dataset.showing = showing;
+  root.innerHTML = '';
   root.append(state.multi.size > 1 ? multiPanel() : o ? objectPanel(o) : environmentPanel());
 }
 
@@ -718,6 +723,19 @@ function openLibraryModal() {
   search();
 }
 
+// Delete after asking; if objects in the project still use it, ask once more before forcing it.
+async function deleteLibraryItem(item, refresh) {
+  if (!confirm(`Delete "${item.name}" from the library for good?`)) return;
+  try {
+    await api('delete_library_item', { kind: item.kind, id: item.id });
+  } catch (err) {
+    if (!/still used/.test(err.message)) return toast(err.message, true);
+    if (!confirm(`${err.message.replace(/ Pass force.*/, '')} Delete it anyway? Those objects will lose it.`)) return;
+    if (!(await run('delete_library_item', { kind: item.kind, id: item.id, force: true }))) return;
+  }
+  refresh();
+}
+
 function libraryCard(item, refresh) {
   const place = async () => {
     const r = item.kind === 'asset' ? await run('place_asset', { name: item.id })
@@ -732,7 +750,7 @@ function libraryCard(item, refresh) {
     el('div', { class: 'btn-row' },
       el('button', { class: 'tiny primary', onclick: place }, 'Place'),
       el('button', { class: 'tiny', onclick: async () => { const t = prompt('Tags, separated by commas:', (item.tags ?? []).join(', ')); if (t !== null && await run('tag_item', { kind: item.kind, id: item.id, tags: t.split(',').map((x) => x.trim()).filter(Boolean) })) refresh(); } }, 'Tags'),
-      el('button', { class: 'tiny danger', onclick: async () => { if (confirm(`Delete "${item.name}" from the library for good?`) && await run('delete_library_item', { kind: item.kind, id: item.id })) refresh(); } }, '✕')));
+      el('button', { class: 'tiny danger', onclick: () => deleteLibraryItem(item, refresh) }, '✕')));
 }
 
 async function openQualityModal(id) {
@@ -884,7 +902,7 @@ function houseStylePanel(env) {
   const box = el('div', { class: 'prop-group' }, el('p', { class: 'muted' }, 'Loading…'));
   // fetched once: the panel is rebuilt on every scene change
   (state.houseStyles ??= run('list_house_styles')).then((styles) => {
-    if (!styles) return;
+    if (!styles) { state.houseStyles = null; box.firstChild.textContent = 'Could not load house styles.'; return; } // try again next time
     box.innerHTML = '';
     const pick = sel(Object.entries(styles).map(([k, s]) => [k, `${k}${s.custom ? ' (yours)' : ''}`]), env.houseStyle ?? Object.keys(styles)[0]);
     const recolor = el('input', { type: 'checkbox', checked: true });
@@ -1280,7 +1298,7 @@ function pictureToolsTab() {
           if (!pick.value) return;
           const r = await run('make_palette_variants', { assetId: pick.value, count: 3 });
           out.innerHTML = '';
-          if (r) out.append(el('div', { class: 'icon-grid' }, r.variants.map((v) => el('img', { src: `/library/images/${state.library.images[v.assetId]?.file}`, class: 'pixelated' }))));
+          if (r) out.append(el('div', { class: 'icon-grid' }, r.variants.map((v) => el('img', { src: `/library/images/${v.assetId}`, class: 'pixelated' }))));
         },
       }, '🎨 Colour variants'),
       el('button', {

@@ -202,10 +202,15 @@ export function renderParallax({ theme = 'mountains', time = 'day', width = 320,
   if (time === 'night') for (let i = 0; i < width / 6; i++) sky.set(Math.floor(rand() * width), Math.floor(rand() * height * 0.6), rand() < 0.2 ? '#ffffff' : '#9fb0d8');
   sky.disc(width * 0.78, height * (time === 'sunset' ? 0.55 : 0.22), height * 0.08, c.light);
 
+  // a zigzag of about `period` pixels that fits the width a whole number of times, so layers tile without a jump
+  const saw = (x, period) => {
+    const n = Math.max(1, Math.round(width / period));
+    return Math.abs(((x * n / width) % 1) * 2 - 1);
+  };
   const ridge = (p, base, amp, freq, col, jag = 0) => {
     const h = periodic1d(rng(seed + base * 100), width, freq);
     for (let x = 0; x < width; x++) {
-      const top = Math.round(height * base - h(x) * height * amp - (jag ? Math.abs(((x * 7) % 13) - 6) * jag : 0));
+      const top = Math.round(height * base - h(x) * height * amp - (jag ? saw(x, 13) * 6 * jag : 0));
       for (let y = Math.max(0, top); y < height; y++) p.set(x, y, col);
     }
   };
@@ -226,7 +231,7 @@ export function renderParallax({ theme = 'mountains', time = 'day', width = 320,
       const base = height * 0.72;
       const top = Math.round(base - best);
       // snow covers the upper part of each peak, with a slightly ragged lower edge
-      const snowLine = base - peakH * 0.72 + ((x * 5) % 7) - 3;
+      const snowLine = base - peakH * 0.72 + Math.round(saw(x, 7) * 6) - 3;
       for (let y = Math.max(0, top); y < height; y++) p.set(x, y, y < snowLine ? snow : side ? lit : c.far);
     }
   }
