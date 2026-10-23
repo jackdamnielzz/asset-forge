@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { describeParam } from './param-docs.js';
 
 // The command registry is the single "menu" of everything Asset Forge can do.
 // The window, the HTTP API, the MCP server and the CLI all call commands from here,
@@ -24,14 +25,17 @@ export class CommandRegistry {
   }
 
   list() {
-    return [...this.commands.values()].map((c) => ({
-      name: c.name,
-      title: c.title ?? c.name,
-      description: c.description,
-      category: c.category,
-      mutates: c.mutates,
-      inputSchema: toJsonSchema(c.input),
-    }));
+    return [...this.commands.values()].map((c) => {
+      const inputSchema = toJsonSchema(c.input);
+      // fill in explanations for inputs that do not carry their own
+      for (const [k, p] of Object.entries(inputSchema.properties ?? {})) {
+        if (!p.description) {
+          const d = describeParam(c.name, k);
+          if (d) p.description = d;
+        }
+      }
+      return { name: c.name, title: c.title ?? c.name, description: c.description, category: c.category, mutates: c.mutates, inputSchema };
+    });
   }
 
   async execute(name, args, ctx) {

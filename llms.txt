@@ -1,0 +1,233 @@
+# Asset Forge
+
+> An AI-controllable 3D and pixel-art asset creation tool (version 0.1.0). 107 commands over a simple HTTP API and MCP.
+
+Asset Forge is a 3D and pixel-art asset creation tool that AIs drive completely through commands.
+A person may be watching the window live while you work.
+
+BASICS
+- Units are metres, Y is up, rotations are in degrees. New objects rest on the ground unless given a position.
+- Every action is a command. Call get_scene first to see what exists (objects have ids like "box_1").
+- Every changing command is one undo step; run_batch runs many commands as one step ($N.id refers to the id from step N).
+- Projects save automatically. save_checkpoint before risky experiments; restore_version goes back.
+
+MAKING BEAUTIFUL 3D ASSETS
+1. Build from several well-proportioned parts and put them in a group (add_object type "group", then parent, or group_objects).
+2. Keep a small bevel (0.01–0.05) on boxes: rounded edges catch light and look real.
+3. Use material presets, then tune colour and roughness. Presets with generated surfaces (oak, floor_planks, old_wood,
+   brushed_steel, worn_metal, rusty_metal, cobblestone, brick_wall, floor_tiles, cloth, concrete, hand_painted) look far
+   richer than plain colours. Tune with set_material pattern { scale, seed, variation, bump, angle } and wear (age 0–1).
+   Avoid pure black and white.
+4. Light it: set_environment (studio to judge shapes; outdoor, sunset, night, dramatic for mood). set_style switches the whole
+   look (realistic, toon, lowpoly, clay). set_effects controls soft shadows and glow.
+5. Generators build whole props in one call, each with options and a seed: make_crate, make_barrel, make_chest, make_rock,
+   make_tree, make_crystal, make_potion, make_sword, make_coin, make_lamp_post, make_fence, make_level_kit, make_character.
+   remake changes a generator-made object's options in place; make_variations shows several versions (keep_variation picks one).
+6. Advanced shapes: lathe (spin a [radius, y] profile: bottles, vases, columns), extrude (flat outline with depth: blades,
+   signs), text, rock, cutout (a picture's outline as a solid), voxels (blocks), model (imported .glb).
+   Modelling: cut_object (subtract, union, intersect), mirror_object, repeat_object (line, circle, grid), group_objects, ungroup.
+7. ALWAYS look at your work with render_preview (it returns a picture; try views iso and front; sizeReference shows a
+   1.8 m person) and fix gaps, floating parts and proportions. check_quality finds problems automatically.
+
+GAMES
+- Animation: animate_object (spin, bob, pulse, swing, hinge, shake, hop) or set_keyframes. Animations go into exports.
+- Godot: export_godot / export_each write .glb files with collision and animations straight into a Godot 4 project.
+- Sprites: render_sprites turns an object into a sprite sheet (directions × frames), with pixel-art options (palette,
+  dither, outlineStyle "selout", maps ["normal"]) and a Godot SpriteFrames file when a project is given.
+- Also: make_icons (inventory icons), make_tileset (autotiles + Godot TileSet), make_effect (explosion, fire, smoke,
+  magic, sparks, glitter, heal, lightning), make_parallax (scrolling backgrounds), make_prop_sheet, make_iso_tiles.
+
+PIXEL ART AND PICTURES
+- pixelate_image (any picture → pixel art), paint_pixels, recolor_image, make_palette_variants, extract_palette,
+  check_pixel_style, remove_background, make_seamless (photo → tiling texture), export_aseprite, voxels_from_image.
+- Palettes: list_palettes (pico8, sweetie16, endesga32, db16, gameboy, onebit). apply_house_style keeps a game consistent.
+
+AI SERVICES (cost the user money: ask before calling)
+- generate_image (openai, google Nano Banana, nanogpt, pixellab), generate_video (nanogpt), generate_3d (fal).
+- PixelLab in full: pixellab_tools lists 70+ tools, pixellab_tool_info shows every setting, pixellab_run runs one.
+  pixellab_balance and list_ai_services are free.
+- If you have your own image tools, make the picture there and bring it in with import_image (data or url).
+
+DELIVERING
+- export_glb (3D model), export_png (picture), save_asset (library with thumbnail and tags). Files go to workspace/exports
+  unless a Godot project folder is given.
+
+HOW TO CALL
+- List everything: GET /api/commands (each command with description and JSON input schema).
+- Run a command: POST /api/commands/<name> with a JSON body of its inputs.
+  Answer: { "ok": true, "result": … } or { "ok": false, "error": "…" } (HTTP 400 for a wrong input, with a helpful message).
+- Pictures: results with "image" hold a base64 PNG. Add ?format=png to get the PNG itself (e.g. render_preview).
+- The scene: GET /api/scene. The library: GET /api/library.
+- On the same computer no password is needed. When Asset Forge is shared on a network, send
+  "Authorization: Bearer <password>" with every request. Callers on other computers cannot use file paths
+  (path, project, to); send data or url instead.
+- Browsers: requests from other websites are refused; tools and scripts (no Origin header) work.
+- MCP: run "node src/mcp/index.js" (or set FORGE_URL and FORGE_PASSWORD to reach a shared Asset Forge) to get every
+  command as an MCP tool.
+
+## Full documentation
+
+- [OpenAPI 3.1 description](docs/openapi.json): every command with its full input schema
+- [API reference](docs/API.md): every command and every setting explained, with examples
+- [Command list (JSON)](/api/commands)
+
+## Scene
+
+- get_scene: Return the whole scene: all objects (ids, transforms, params, materials), environment and camera.
+- clear_scene: Remove all objects.
+- set_environment: Choose a lighting preset and background.
+- set_style: Switch the overall look of the whole scene without changing the objects.
+- set_effects: Picture effects.
+- set_camera: Set the scene camera used by the "camera" render view and shown in the window.
+- load_scene: Replace the current scene with a full scene JSON (the format returned by get_scene).
+- undo: Undo the last change.
+- redo: Redo the last undone change.
+- run_batch: Run many commands in one go, as a single undo step.
+
+## Objects
+
+- add_object: Add a shape to the scene.
+- update_object: Change an object's name, transform, shape params, visibility or parent.
+- set_material: Change the surface look of one or more objects.
+- delete_object: Remove an object (and everything inside it if it is a group).
+- duplicate_object: Copy an object (with its children).
+- get_object: Return all details of one object.
+
+## Modelling
+
+- cut_object: Combine two shapes.
+- uncut_object: Undo a cut/combine between target and cutter and show the cutter again.
+- group_objects: Put several objects into a new group so they move, animate, export and get saved together.
+- ungroup: Dissolve a group: its objects move up one level and keep their place in the world; the empty group is removed.
+- repeat_object: Make copies of an object in a pattern.
+- mirror_object: Make a mirrored copy of an object (with its children) on the other side of a plane.
+
+## Animation
+
+- animate_object: Add a ready-made movement to an object or group.
+- set_keyframes: Custom movement for an object: keys = [{ t: 0..1, position?: [x,y,z], rotation?: [deg,deg,deg], scale?: [x,y,z] }].
+- set_animation: Change an animation's length (seconds), looping, or name.
+- remove_animation: Remove the movement of one object from an animation (give id), or the whole animation (no id).
+- list_animations: List the scene's animations with their tracks.
+
+## Pictures & exports
+
+- render_preview: Render a picture of the scene and return it, so you can SEE the result.
+- export_png: Render a high-quality PNG file into the exports folder.
+- export_glb: Export the scene (or one object/group) as a .glb 3D model file with textures and animations embedded.
+
+## Game assets
+
+- make_icons: Render inventory/UI icons: one square PNG per object, all with the same angle, light and framing, transparent background and an optional outline.
+- render_sprites: Turn a 3D object into a 2D sprite sheet for 2D games.
+- export_godot: Export an object (or the scene) as a .glb straight into a Godot 4 project, with a collision shape and animations.
+- export_each: Export every top-level object (or every child of one group, e.g.
+- make_tileset: Generate a seamless pixel-art tileset where one ground type (overlay, e.g.
+
+## Generators
+
+- make_crate: Build a wooden crate as one group (frame posts, beams, diagonal braces, panels, optional metal corners).
+- make_barrel: Wooden barrel with bulging staves, a lid and metal hoops.
+- make_chest: Treasure chest with a rounded lid, metal bands, corner caps and a lock with a keyhole.
+- make_rock: Natural stone: a single boulder, a cluster, or scattered pebbles.
+- make_tree: Stylised tree: "round" (leafy blobs), "pine" (stacked cones) or "dead" (bare branches).
+- make_crystal: Cluster of glowing hexagonal crystals growing from a small rock.
+- make_potion: Glass potion bottle with glowing liquid and a cork.
+- make_sword: Standing sword: bevelled blade with a groove (fuller), crossguard, wrapped grip and pommel.
+- make_coin: Coin with a raised rim and an embossed symbol (letters/numbers).
+- make_lamp_post: Classic street lamp: moulded base, pole, glass lantern with a glowing bulb and a pointed cap.
+- make_fence: Wooden fence segment along X: posts, rails and pointed pickets ("picket") or just rails ("rail").
+- make_level_kit: A set of matching building pieces that snap together on a grid: floor, wall, wall with door, wall with window, pillar and stairs.
+- make_character: A jointed game character (chibi or normal proportions) with hair or a hat, clothes colours and an optional weapon/shield, plus ready-made animations: idle, walk, run, attack, jump.
+
+## Pixel art
+
+- make_effect: Make an animated pixel-art effect as a sprite strip: explosion, fire, smoke, magic, sparks, glitter, heal, lightning.
+- make_parallax: Make a layered pixel-art background for side-scrolling games: sky, far, middle and near layers that each repeat seamlessly sideways.
+- recolor_image: Swap exact colours in a picture, e.g.
+- make_palette_variants: Make colour versions of a sprite by turning every colour around the colour wheel (a red, green and blue slime from one design).
+- extract_palette: Pick the main colours out of any picture (sorted dark to light).
+- check_pixel_style: Check a pixel-art picture for common problems: blurry half-transparent pixels, too many colours, colours outside the palette, lonely stray pixels, and a size that does not fit the tile grid.
+- paint_pixels: Edit a picture pixel by pixel: pixels = [[x, y, "#hex" or null to erase]], fills = [[x, y, "#hex" or null]] flood-fills the area of the same colour.
+- export_aseprite: Turn a sprite sheet from the library into an .aseprite file (one frame per cell, a tag per row so every animation/direction is named) to keep working in Aseprite.
+- make_prop_sheet: Render several objects as pixel-art props with the same camera, scale and palette, packed into one sheet (with a .json listing where each one is).
+- make_iso_tiles: Render the pieces of a level kit (or other objects) as pixel-art isometric tiles: classic 2:1 diamond view, all at exactly the same scale so they line up on an isometric grid.
+
+## Picture tools
+
+- list_palettes: List the built-in pixel-art palettes (use their names wherever a palette is asked for).
+- remove_background: Make the plain background of a picture see-through (flood fill from the edges).
+- make_seamless: Turn a photo (stone, grass, wood, fabric...) into a texture that repeats without visible edges.
+- pixelate_image: Turn any picture (photo, drawing, AI image) into pixel art: scaled down to a small size, limited colour palette, crisp edges and an optional outline.
+- video_to_sprites: Cut a library video into evenly spaced frames and lay them out as a sprite sheet (optionally as pixel art with the background removed).
+
+## Voxels
+
+- edit_voxels: Add, remove or recolour blocks of a voxel object.
+- voxels_from_image: Turn a pixel-art picture into a 3D voxel object: every pixel becomes a block (depth = how many blocks thick).
+- import_vox: Import a MagicaVoxel .vox model as a voxel object (editable with edit_voxels).
+
+## Library: importing
+
+- import_image: Add a picture (PNG, JPG, WebP, GIF) to the image library so it can be used as a texture or as an image object.
+- import_model: Add a ready-made 3D model (.glb, e.g.
+- list_images: List all images in the library (id, name, size, and how AI-made ones were made).
+- list_library: List everything in the library: images, 3D models and videos.
+
+## Library
+
+- save_asset: Save a finished object to the asset library with a thumbnail, tags and a description, so it can be found (search_library) and placed in any project (place_asset).
+- place_asset: Place a saved library asset in the current scene.
+- tag_item: Set the tags (and optionally the description or name) of a library asset, image or model.
+- search_library: Search everything in the library: saved assets, images and 3D models, by words (name, tags, description, the prompt an AI image was made with) and/or tags.
+- delete_library_item: Permanently remove an asset, image or model from the library (its file too).
+
+## Recipes, variations & quality
+
+- get_recipe: Show how a generator-made object was made (the generator command and its options).
+- remake: Rebuild a generator-made object with changed options, e.g.
+- save_recipe: Store an object (with everything inside it, its materials, cuts and animations) as a reusable template in the library, so it can be placed again in any project with use_recipe.
+- use_recipe: Place a saved recipe (template) in the current scene.
+- list_recipes: List the saved recipes (templates) in the library.
+- make_variations: Make several versions of an object side by side so the best one can be picked.
+- keep_variation: Keep one variation: it takes the place of the original, and the original and the other variations are removed.
+- check_quality: Look for problems before delivering assets: floating or loose parts, objects sinking into the ground, odd sizes, too many polygons for a game, missing pictures, and beauty tips (sharp box edges, pure black/white, mirror-smooth metal).
+
+## House styles
+
+- list_house_styles: List house styles: built-in ones and your own saved ones.
+- save_house_style: Save a house style: a colour palette plus lighting, style and effects.
+- apply_house_style: Apply a house style to the scene: its lighting, style and effects, and (recolor, default true) snap every material colour to the nearest palette colour.
+
+## AI services
+
+- list_ai_services: Show which outside AI services are connected and what they can make (image, video, 3d) with suggested model names.
+- connect_ai_service: Save an API key (and optionally a different server address) for a service.
+- generate_image: Make a picture with an outside AI image model and add it to the library.
+- generate_video: Make a short video with an outside AI video model (nanogpt: Veo, Kling, Wan, Seedance...).
+- generate_3d: Make a textured 3D model with an outside AI (fal: Trellis 2 or Hunyuan 3D) from a picture (image = library image id; best with one object on a plain background) or from text (prompt with a text-to-3d model).
+
+## PixelLab (all tools)
+
+- pixellab_tools: List every tool PixelLab offers (images, characters in 4/8 directions, animations, tilesets, isometric tiles, UI, fonts, effects, editing...), read live from PixelLab's own specification.
+- pixellab_tool_info: All settings of one PixelLab tool with their descriptions, allowed values, defaults and limits (as a JSON schema).
+- pixellab_run: Run any PixelLab tool with any of its settings (see pixellab_tool_info).
+- pixellab_balance: Show the remaining PixelLab credits and subscription generations (free to call).
+
+## Projects, versions & backups
+
+- list_projects: List saved projects.
+- new_project: Start a new, empty project.
+- open_project: Open a saved project.
+- save_project_as: Save the current scene under a new project name and continue working in that copy.
+- list_versions: List saved versions of the current project (newest first).
+- save_checkpoint: Save the current project as a named version you can go back to (e.g.
+- restore_version: Go back to an earlier version of the current project (see list_versions).
+- backup_now: Copy all projects, the library and the version history into a dated backup folder (next to the workspace, "workspace-backups"; the last 7 are kept).
+
+## Help
+
+- list_commands: List every available command (including plugin commands).
+- list_presets: List material presets, generated patterns, styles and lighting presets.
+- list_plugins: List loaded plugins.
+- open_window: Open the Asset Forge window in the default web browser so the user can watch live.

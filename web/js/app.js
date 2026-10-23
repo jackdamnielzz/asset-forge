@@ -858,7 +858,10 @@ function environmentPanel() {
     el('h3', {}, 'Connect an AI'),
     el('p', { class: 'big-hint' },
       'Everything you can click here, an AI can do too. In Claude Code, inside the Asset Forge folder, the tool connects automatically. ',
-      'Other AIs and scripts can use the HTTP API at ', el('code', {}, `${location.origin}/api/commands`), '.'),
+      'Other AIs and scripts use the HTTP API; its full documentation is at ',
+      el('a', { href: '/docs', target: '_blank' }, '📖 API docs'), ', for AIs at ',
+      el('a', { href: '/llms.txt', target: '_blank' }, 'llms.txt'), ' and ',
+      el('a', { href: '/api/openapi.json', target: '_blank' }, 'openapi.json'), '.'),
     sharingInfo(),
     el('p', { class: 'hint' }, 'Select an object to edit it. Drop images anywhere to import them.'),
   );

@@ -149,6 +149,17 @@ AIs that have their own image tools (like PixelLab in Claude Code) can simply `i
 - **Multi-select**: Ctrl+click (in the 3D view or the object list) selects several objects; group them (Ctrl+G),
   give them a material or colour, duplicate or delete them at once. `group_objects` / `ungroup` keep everything in place.
 
+## Documentation for AIs
+
+Any AI can learn the whole API from these (they are generated from the software itself):
+
+- **[llms.txt](llms.txt)** — a compact guide for AIs with every command (live: `http://127.0.0.1:7777/llms.txt`)
+- **[docs/API.md](docs/API.md)** — every command and every setting explained, with examples (live and searchable: `http://127.0.0.1:7777/docs`)
+- **[docs/openapi.json](docs/openapi.json)** — OpenAPI 3.1, for ChatGPT actions, LangChain, n8n and other tools (live: `/api/openapi.json`)
+- **[AGENTS.md](AGENTS.md)** — where to start, for AI coding agents
+
+After adding or changing commands, run `npm run docs` to refresh the files; `npm test` fails if a command or setting is not explained.
+
 ## How AIs control it
 
 Every action is a **command**. The window's buttons, the MCP tools, the HTTP API and the CLI

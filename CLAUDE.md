@@ -56,6 +56,12 @@ The `asset-forge` MCP server is configured in `.mcp.json`. Build with several pa
 keep box bevels > 0, use material presets then tune, and **always check with render_preview**
 before saying something is done. Exports go to `workspace/exports/`.
 
+## Documentation
+- The API docs (llms.txt, docs/API.md, docs/openapi.json, /docs page) are generated from the command registry by
+  `src/core/docs.js`; the AI guide text lives in `src/shared/ai-guide.js` (also used by the MCP server).
+- Every input needs an explanation: give it a zod `.describe()`, or add it to `src/core/param-docs.js`.
+  `npm test` fails otherwise. Run `npm run docs` after changing commands.
+
 ## Checks
 - `npm test` runs an end-to-end smoke test (starts a private engine on port 7790).
 - `npm run test:godot` checks the exports inside real Godot 4 (finds Godot automatically, or set GODOT).

@@ -326,6 +326,19 @@ try {
   const rebind = await new Promise((resolve) => http.get({ host: '127.0.0.1', port: PORT, path: '/api/scene', headers: { Host: 'attacker.example:7790' } }, (r) => { r.resume(); resolve(r.statusCode); }));
   check(rebind === 421, 'refuses unknown host names');
 
+  // Documentation for other AIs: complete and generated from the live command list
+  const spec = await (await fetch(`${BASE}/api/openapi.json`)).json();
+  const allCommands = await (await fetch(`${BASE}/api/commands`)).json();
+  const documented = allCommands.filter((c) => spec.paths[`/api/commands/${c.name}`]?.post?.operationId === c.name);
+  check(spec.openapi === '3.1.0' && documented.length === allCommands.length, `OpenAPI describes all ${allCommands.length} commands`);
+  const undocumented = allCommands.flatMap((c) => Object.entries(c.inputSchema.properties ?? {}).filter(([, p]) => !p.description).map(([k]) => `${c.name}.${k}`));
+  check(!undocumented.length, `every input is explained${undocumented.length ? ` (missing: ${undocumented.join(', ')})` : ''}`);
+  const llms = await (await fetch(`${BASE}/llms.txt`)).text();
+  check(allCommands.every((c) => llms.includes(`- ${c.name}:`)), 'llms.txt lists every command');
+  const md = await (await fetch(`${BASE}/docs/api.md`)).text();
+  const page = await (await fetch(`${BASE}/docs`)).text();
+  check(allCommands.every((c) => md.includes(`### ${c.name}`)) && page.includes('id="add_object"'), 'API reference and docs page cover every command');
+
   // Versions, backups, grouping
   await call('new_project', { name: 'history' });
   const a1 = await call('add_object', { type: 'box', position: [1, 0.5, 0] });

@@ -12,7 +12,8 @@
     "mcp": "node src/mcp/index.js",
     "forge": "node src/cli/forge.js",
     "test": "node test/smoke.js",
-    "test:godot": "node test/godot.js"
+    "test:godot": "node test/godot.js",
+    "docs": "node scripts/make-docs.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

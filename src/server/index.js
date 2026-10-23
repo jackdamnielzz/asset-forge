@@ -8,6 +8,7 @@ import { Engine } from '../core/engine.js';
 import { CommandError } from '../core/registry.js';
 import { launchHeadlessRenderer, killStaleRenderer } from './headless.js';
 import { createAccess, LOGIN_PAGE } from './access.js';
+import * as docs from '../core/docs.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = Number(process.env.FORGE_PORT ?? 7777);
@@ -147,6 +148,11 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/health') return json(res, 200, { ok: true, app: 'asset-forge', version: VERSION, project: engine.scene.name });
     if (p === '/api/access') return json(res, 200, { sharing: access.sharing, addresses: access.addresses() });
+    // documentation, generated from the live command list
+    if (p === '/api/openapi.json') return json(res, 200, docs.openapi(engine.registry.list(), { version: VERSION }));
+    if (p === '/llms.txt') return text(res, docs.llmsTxt(engine.registry.list(), { version: VERSION }), 'text/plain; charset=utf-8');
+    if (p === '/docs/api.md') return text(res, docs.markdown(engine.registry.list(), { version: VERSION }), 'text/markdown; charset=utf-8');
+    if (p === '/docs' || p === '/docs/') return html(res, 200, docs.html(engine.registry.list(), { version: VERSION }));
     if (p === '/api/commands' && req.method === 'GET') return json(res, 200, engine.registry.list());
     if (p === '/api/scene') return json(res, 200, engine.scene);
     if (p === '/api/library') return json(res, 200, engine.library);
@@ -261,6 +267,11 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 // ---- helpers ----------------------------------------------------------------
+
+function text(res, body, type) {
+  res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
+  res.end(body);
+}
 
 function html(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
