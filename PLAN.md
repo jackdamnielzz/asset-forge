@@ -127,7 +127,7 @@
 - Voxel building and .vox import; pixel sprite → 3D blocks
 - PixelLab teamwork (our render as guide, AI paints the pixels), style check, Aseprite export
 
-### Phase 8 — Comfort & sharing
+### Phase 8 — Comfort & sharing ✅ done (2026-10-23)
 - Size reference (1.8 m person)
 - Asset library with thumbnails, tags and search
 - Real Windows program with its own icon

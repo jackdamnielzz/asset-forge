@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { Engine } from '../core/engine.js';
 import { CommandError } from '../core/registry.js';
 import { launchHeadlessRenderer, killStaleRenderer } from './headless.js';
+import { createAccess, LOGIN_PAGE } from './access.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = Number(process.env.FORGE_PORT ?? 7777);
@@ -27,6 +28,14 @@ const MIME = {
   '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.glb': 'model/gltf-binary', '.wasm': 'application/wasm',
   '.mp4': 'video/mp4', '.webm': 'video/webm',
 };
+
+let access;
+try {
+  access = createAccess({ port: PORT, host: HOST, password: process.env.FORGE_PASSWORD, trustLocal: process.env.FORGE_TRUST_LOCAL !== '0' });
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 
 const engine = new Engine({
   workspace: path.resolve(process.env.FORGE_WORKSPACE ?? path.join(ROOT, 'workspace')),
@@ -116,7 +125,28 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, URL_BASE);
     const p = decodeURIComponent(url.pathname);
 
+    // log-in page for other computers when sharing is on
+    if (p === '/login') {
+      const denied = access.check(req);
+      if (denied && denied[0] !== 401) return json(res, denied[0], { ok: false, error: denied[1] });
+      if (req.method === 'POST') {
+        const form = new URLSearchParams(await readBody(req));
+        const r = await access.login(req, form.get('password'));
+        if (r.error) return html(res, 401, LOGIN_PAGE(r.error));
+        res.writeHead(303, { Location: '/', 'Set-Cookie': `forge_session=${r.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800` });
+        return res.end();
+      }
+      return html(res, 200, LOGIN_PAGE());
+    }
+    const isPage = req.method === 'GET' && !p.startsWith('/api/');
+    const denied = access.check(req, { page: isPage });
+    if (denied) {
+      if (denied[0] === 302) { res.writeHead(302, { Location: denied[1] }); return res.end(); }
+      return json(res, denied[0], { ok: false, error: denied[1] });
+    }
+
     if (p === '/api/health') return json(res, 200, { ok: true, app: 'asset-forge', version: VERSION, project: engine.scene.name });
+    if (p === '/api/access') return json(res, 200, { sharing: access.sharing, addresses: access.addresses() });
     if (p === '/api/commands' && req.method === 'GET') return json(res, 200, engine.registry.list());
     if (p === '/api/scene') return json(res, 200, engine.scene);
     if (p === '/api/library') return json(res, 200, engine.library);
@@ -125,6 +155,8 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       let args;
       try { args = body.length ? JSON.parse(body) : {}; } catch { return json(res, 400, { ok: false, error: 'Body must be JSON' }); }
+      const limit = access.commandAllowed(req, name, args);
+      if (limit) return json(res, 403, { ok: false, error: limit });
       try {
         const result = await engine.execute(name, args, { source: req.headers['x-forge-source'] ?? 'http' });
         if (url.searchParams.get('format') === 'png' && result?.image) {
@@ -143,6 +175,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/' || p === '/index.html') return sendFile(res, path.join(ROOT, 'web', 'index.html'));
     if (p.startsWith('/library/images/')) return sendFile(res, safeJoin(engine.paths.images, p.slice('/library/images/'.length)));
     if (p.startsWith('/library/models/')) return sendFile(res, safeJoin(path.join(engine.paths.library, 'models'), p.slice('/library/models/'.length)));
+    if (p.startsWith('/library/thumbs/')) return sendFile(res, safeJoin(path.join(engine.paths.library, 'thumbs'), p.slice('/library/thumbs/'.length)));
     if (p.startsWith('/library/videos/')) return sendFile(res, safeJoin(path.join(engine.paths.library, 'videos'), p.slice('/library/videos/'.length)));
     if (p.startsWith('/exports/')) return sendFile(res, safeJoin(engine.paths.exports, p.slice('/exports/'.length)));
     for (const [prefix, dir] of Object.entries(STATIC)) {
@@ -155,7 +188,15 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
+server.on('upgrade', (req, socket, head) => {
+  const denied = new URL(req.url, URL_BASE).pathname !== '/ws' ? [404, 'Not found'] : access.check(req);
+  if (denied) {
+    socket.end(`HTTP/1.1 ${denied[0] === 302 ? 401 : denied[0]} Denied\r\nConnection: close\r\n\r\n`);
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+});
 wss.on('connection', (ws) => {
   const client = { ws, role: 'viewer', ready: false };
   clients.add(client);
@@ -190,8 +231,26 @@ server.listen(PORT, HOST, () => {
   console.log(`Asset Forge ${VERSION} running at ${URL_BASE}`);
   console.log(`Project: ${engine.scene.name} | workspace: ${engine.workspace}`);
   if (engine.plugins.length) console.log(`Plugins: ${engine.plugins.map((p) => p.name).join(', ')}`);
+  if (access.sharing) console.log(`Shared on the network (password required) at: ${access.addresses().join(', ') || `port ${PORT}`}`);
   if (!process.argv.includes('--no-open') && !process.env.FORGE_NO_OPEN) openInBrowser(URL_BASE);
 });
+
+// --idle-exit=N: stop by itself after N minutes without an open window or API calls
+// (the desktop shortcut starts the engine invisibly, so it should not run forever).
+let lastActivity = Date.now();
+server.on('request', () => { lastActivity = Date.now(); });
+const idleArg = process.argv.find((a) => a.startsWith('--idle-exit='));
+if (idleArg) {
+  const minutes = Number(idleArg.split('=')[1]) || 10;
+  setInterval(() => {
+    const viewers = [...clients].some((c) => c.role === 'viewer');
+    if (viewers) lastActivity = Date.now();
+    else if (Date.now() - lastActivity > minutes * 60_000) {
+      console.log(`No window open for ${minutes} minutes; stopping.`);
+      shutdown();
+    }
+  }, 30_000).unref();
+}
 
 async function shutdown() {
   await engine.saveCurrent().catch(() => {});
@@ -202,6 +261,11 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 // ---- helpers ----------------------------------------------------------------
+
+function html(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(body);
+}
 
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });

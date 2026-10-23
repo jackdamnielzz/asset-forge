@@ -82,6 +82,23 @@ export class SceneView {
       this.grid.position.y = 0.001;
       this.helpers.add(this.grid);
     }
+    this.sizeRef = makePerson();
+    this.sizeRef.visible = false;
+    this.scene.add(this.sizeRef);
+  }
+
+  // A see-through 1.8 m person standing next to the objects, to judge sizes.
+  setSizeReference(on) {
+    this.sizeRef.visible = on;
+    this.placeSizeReference();
+  }
+
+  placeSizeReference(next = this.content) {
+    this.scene.attach(this.sizeRef);
+    const box = contentBox(next);
+    const x = box.isEmpty() ? -1 : box.min.x - 0.45;
+    const z = box.isEmpty() ? 0 : (box.min.z + box.max.z) / 2;
+    this.sizeRef.position.set(x, 0, z);
   }
 
   setLibrary(library) {
@@ -437,6 +454,7 @@ export class SceneView {
       }
     }
     this.fitShadows();
+    if (this.sizeRef.visible) this.placeSizeReference();
     this.setBackground(env.background ?? preset.background);
   }
 
@@ -567,11 +585,19 @@ export class SceneView {
   }
 
   // Render a picture. Supersamples for clean edges, returns base64 PNG.
-  async renderImage({ view = 'iso', width = 768, height = 768, target, background, ground, isolate = false, padding = 0, outline = null }) {
+  async renderImage({ view = 'iso', width = 768, height = 768, target, background, ground, isolate = false, padding = 0, outline = null, sizeReference = false }) {
     await this.whenReady();
     this.resetPose();
     const env = this.data.environment;
     const restoreIsolation = isolate && target ? this.isolate(target) : null;
+    // the person joins the content for this picture so the framing includes it
+    const refWasVisible = this.sizeRef.visible;
+    if (sizeReference) {
+      const host = (target && this.nodes.get(target)?.obj) || this.content;
+      this.placeSizeReference(host);
+      this.sizeRef.visible = true;
+      host.attach(this.sizeRef);
+    } else this.sizeRef.visible = false;
     const ss = width * height <= 1024 * 1024 ? 2 : 1;
     const cam = new THREE.PerspectiveCamera(35, width / height, 0.01, 500);
     if (view === 'camera') {
@@ -621,6 +647,8 @@ export class SceneView {
     this.renderer.setPixelRatio(prevRatio);
     this.renderer.setSize(prevSize.x, prevSize.y, false);
     restoreIsolation?.();
+    this.scene.attach(this.sizeRef);
+    this.sizeRef.visible = refWasVisible;
 
     return { png: out.toDataURL('image/png').split(',')[1], width, height };
   }
@@ -940,6 +968,21 @@ export class SceneView {
   objectById(id) {
     return this.nodes.get(id)?.obj ?? null;
   }
+}
+
+function makePerson() {
+  const g = new THREE.Group();
+  g.name = 'size reference (1.8 m)';
+  const mat = new THREE.MeshStandardMaterial({ color: 0x3dc6ff, transparent: true, opacity: 0.45, roughness: 0.6, depthWrite: false });
+  const part = (geo, x, y) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, 0); g.add(m); };
+  part(new THREE.SphereGeometry(0.11, 20, 12), 0, 1.66);                 // head
+  part(new THREE.CapsuleGeometry(0.17, 0.42, 6, 16), 0, 1.22);          // body
+  for (const s of [-1, 1]) {
+    part(new THREE.CapsuleGeometry(0.07, 0.72, 4, 10), s * 0.1, 0.45);  // legs
+    part(new THREE.CapsuleGeometry(0.05, 0.52, 4, 10), s * 0.25, 1.15); // arms
+  }
+  g.userData.isHelper = true;
+  return g;
 }
 
 // Collision shape for Godot. Godot's importer turns nodes whose name ends in "-colonly"

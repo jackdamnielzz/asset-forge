@@ -5,11 +5,13 @@ import { fileURLToPath } from 'node:url';
 // Small client for the engine's HTTP API, shared by the MCP server and the CLI.
 // If the engine is not running yet, it is started in the background.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const BASE = process.env.FORGE_URL ?? `http://127.0.0.1:${process.env.FORGE_PORT ?? 7777}`;
+export const BASE = (process.env.FORGE_URL ?? `http://127.0.0.1:${process.env.FORGE_PORT ?? 7777}`).replace(/\/$/, '');
+// for an Asset Forge shared on another computer
+const AUTH = process.env.FORGE_PASSWORD ? { Authorization: `Bearer ${process.env.FORGE_PASSWORD}` } : {};
 
 export async function health() {
   try {
-    const res = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(`${BASE}/api/health`, { headers: AUTH, signal: AbortSignal.timeout(1500) });
     return res.ok ? await res.json() : null;
   } catch {
     return null;
@@ -30,14 +32,15 @@ export async function ensureEngine({ open = false } = {}) {
 }
 
 export async function listCommands() {
-  const res = await fetch(`${BASE}/api/commands`);
+  const res = await fetch(`${BASE}/api/commands`, { headers: AUTH });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
   return res.json();
 }
 
 export async function call(name, args = {}, source = 'api') {
   const res = await fetch(`${BASE}/api/commands/${name}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Forge-Source': source },
+    headers: { 'Content-Type': 'application/json', 'X-Forge-Source': source, ...AUTH },
     body: JSON.stringify(args),
   });
   const body = await res.json();

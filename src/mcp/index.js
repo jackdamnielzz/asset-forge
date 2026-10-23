@@ -40,7 +40,9 @@ How to make beautiful assets:
    Free picture tools: remove_background, make_seamless, video_to_sprites, import_model (.glb).
 9. Iterate smartly: remake changes a generator-made object's options in place; make_variations shows several
    versions (pick with keep_variation); check_quality before delivering; apply_house_style keeps a game consistent.
-10. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
+10. Finished assets: save_asset (thumbnail + tags) puts them in the library; search_library / place_asset reuse them.
+   render_preview { sizeReference: true } shows a 1.8 m person to check the scale.
+11. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
 
 const server = new Server({ name: 'asset-forge', version: '0.1.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
 

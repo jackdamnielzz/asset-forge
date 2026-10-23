@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import http from 'node:http';
 import { startMockAi } from './mock-ai.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -290,6 +291,27 @@ try {
   const voxShot = await call('render_preview', { width: 256, height: 256 });
   check(Buffer.from(voxShot.image, 'base64').length > 5000, 'voxels render');
 
+  // Phase 8: size reference, asset library, access protection
+  const sized = await call('render_preview', { target: vox.id, sizeReference: true, width: 256, height: 256 });
+  check(Buffer.from(sized.image, 'base64').length > 5000, 'renders with a 1.8 m size reference');
+  const saved = await call('save_asset', { id: fromPic.id, tags: ['Pixel', 'prop'], description: 'blocky test item' });
+  check(Buffer.from(saved.image, 'base64').length > 1000, 'save_asset stores a thumbnail');
+  const found = await call('search_library', { query: 'blocky', tags: ['pixel'] });
+  check(found.items.length === 1 && found.items[0].kind === 'asset' && found.tags.includes('prop'), 'search finds assets by words and tags');
+  const thumb = await fetch(`${BASE}${found.items[0].thumbUrl}`);
+  check(thumb.ok && thumb.headers.get('content-type') === 'image/png', 'thumbnails are served');
+  const placedAsset = await call('place_asset', { name: saved.asset, position: [3, 0, 0] });
+  check(!!placedAsset.id, 'places a library asset');
+  await call('tag_item', { kind: 'image', id: pixelPic.assetId, tags: ['palette-test'] });
+  check((await call('search_library', { tags: ['palette-test'] })).items[0]?.id === pixelPic.assetId, 'tags images');
+  await call('delete_library_item', { kind: 'asset', id: saved.asset });
+  check(!(await call('search_library', { query: 'blocky' })).items.some((i) => i.kind === 'asset'), 'deletes from the library');
+  const csrf = await fetch(`${BASE}/api/commands/clear_scene`, { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'text/plain' }, body: '{}' });
+  check(csrf.status === 403, 'refuses commands sent by other websites');
+  // fetch() does not let you change the Host header, so use a plain request
+  const rebind = await new Promise((resolve) => http.get({ host: '127.0.0.1', port: PORT, path: '/api/scene', headers: { Host: 'attacker.example:7790' } }, (r) => { r.resume(); resolve(r.statusCode); }));
+  check(rebind === 421, 'refuses unknown host names');
+
   await call('open_project', { name: 'untitled' });
 
   const img = await call('import_image', { data: shot.image, name: 'my-render', addToScene: true });
@@ -302,6 +324,35 @@ try {
   await call('new_project', { name: 'second' });
   const list = await call('list_projects');
   check(list.projects.includes('untitled') && list.current === 'second', 'projects save and switch');
+
+  // A second engine that treats every caller as "another computer": password needed.
+  const SHARE = 7792;
+  const shareWs = await fs.mkdtemp(path.join(os.tmpdir(), 'forge-share-'));
+  const shared = spawn(process.execPath, ['src/server/index.js', '--no-open'], {
+    cwd: ROOT, env: { ...process.env, FORGE_PORT: String(SHARE), FORGE_WORKSPACE: shareWs, FORGE_PASSWORD: 'correct-horse-9', FORGE_TRUST_LOCAL: '0' }, stdio: 'ignore',
+  });
+  try {
+    const sb = `http://127.0.0.1:${SHARE}`;
+    for (let i = 0; i < 40; i++) { try { await fetch(`${sb}/login`); break; } catch { await new Promise((r) => setTimeout(r, 250)); } }
+    check((await fetch(`${sb}/api/scene`)).status === 401, 'shared engine: API needs the password');
+    const page = await fetch(`${sb}/`, { redirect: 'manual' });
+    check(page.status === 302 && page.headers.get('location') === '/login', 'shared engine: pages send you to the log-in page');
+    const wrong = await fetch(`${sb}/login`, { method: 'POST', body: 'password=nope', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, redirect: 'manual' });
+    check(wrong.status === 401, 'shared engine: wrong password is refused');
+    const good = await fetch(`${sb}/login`, { method: 'POST', body: 'password=correct-horse-9', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, redirect: 'manual' });
+    const cookie = good.headers.get('set-cookie')?.split(';')[0];
+    check(good.status === 303 && (await fetch(`${sb}/api/scene`, { headers: { Cookie: cookie } })).ok, 'shared engine: log-in gives a session');
+    const bearer = { Authorization: 'Bearer correct-horse-9', 'Content-Type': 'application/json' };
+    check((await fetch(`${sb}/api/commands/get_scene`, { method: 'POST', headers: bearer, body: '{}' })).ok, 'shared engine: AIs can use the password as a bearer token');
+    const fileRead = await fetch(`${sb}/api/commands/import_image`, { method: 'POST', headers: bearer, body: JSON.stringify({ path: 'C:/Windows/win.ini' }) });
+    check(fileRead.status === 403, 'shared engine: other computers cannot read files by path');
+    const keys = await fetch(`${sb}/api/commands/connect_ai_service`, { method: 'POST', headers: bearer, body: JSON.stringify({ service: 'openai', baseUrl: 'https://evil.example' }) });
+    check(keys.status === 403, 'shared engine: other computers cannot change AI service settings');
+  } finally {
+    shared.kill();
+    await new Promise((r) => setTimeout(r, 500));
+    await fs.rm(shareWs, { recursive: true, force: true }).catch(() => {});
+  }
 
   await fs.copyFile(path.join(workspace, 'exports', 'smoke.png'), path.join(ROOT, 'test', 'last-smoke.png'));
   console.log('\nAll checks passed. Preview saved to test/last-smoke.png');

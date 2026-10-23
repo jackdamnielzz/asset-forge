@@ -1,0 +1,13 @@
+{
+  "name": "Asset Forge",
+  "short_name": "Asset Forge",
+  "description": "Our own AI-controllable asset creation tool",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#16181d",
+  "theme_color": "#1e2128",
+  "icons": [
+    { "src": "/web/icon-256.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "/web/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

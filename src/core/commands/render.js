@@ -13,6 +13,7 @@ export function register(registry, { z, engine }) {
     target: z.string().optional().describe('Object id to frame; default frames everything visible'),
     background: color.optional().describe('Override background, or "transparent"'),
     ground: z.boolean().optional().describe('Override whether the ground/shadow is shown'),
+    sizeReference: z.boolean().optional().describe('Show a see-through 1.8 m person next to it, to judge the size'),
   });
 
   registry.define({

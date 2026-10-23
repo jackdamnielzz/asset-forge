@@ -4,7 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Asset Forge</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 7-7 7-7-7z' fill='%23ff8a3d'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" href="/web/icon-256.png">
+  <link rel="manifest" href="/web/manifest.json">
+  <meta name="theme-color" content="#1e2128">
   <link rel="stylesheet" href="/web/style.css">
   <script type="importmap">
     { "imports": {
@@ -33,6 +35,7 @@
       </span>
       <div class="spacer"></div>
       <span id="ai-badge" class="badge" hidden>AI working…</span>
+      <button id="library-btn" title="Asset library: search and place saved assets, images and models">📚 Library</button>
       <button id="check-btn" title="Quality check of the whole scene">✔ Check</button>
       <button id="ai-btn" title="Make images, videos and 3D models with AI services, and picture tools">✨ AI</button>
       <button id="game-btn" title="Icons, sprite sheets, tilesets and Godot export">🎮 Game</button>
@@ -70,6 +73,7 @@
         <button data-mode="translate" class="active" title="Move (W)">✥</button>
         <button data-mode="rotate" title="Rotate (E)">⟳</button>
         <button data-mode="scale" title="Scale (R)">⤢</button>
+        <button id="person-btn" title="Show a 1.8 m person to judge sizes">🧍</button>
         <select id="snap-select" title="Snap moves to a grid and turns to 15° steps">
           <option value="0">⊹</option>
           <option value="0.1">0.1 m</option>

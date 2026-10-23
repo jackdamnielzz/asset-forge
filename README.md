@@ -3,11 +3,15 @@
 Our own asset-creation tool, in the spirit of Blender, built so that **AI models can drive
 it completely**, and people can too. See [PLAN.md](PLAN.md) for the vision and roadmap.
 
-**Status:** Phases 1–7 are done (foundation, beauty, shapes & generators, games, pixel art & AI services, AI superpowers, more pixel art).
+**Status:** all 8 phases of the plan are done (foundation, beauty, shapes & generators, games, pixel art & AI services,
+AI superpowers, more pixel art, comfort & sharing).
 
 ## Starting it
 
-- **Easiest:** double-click `Start Asset Forge.bat`. The window opens in your browser.
+- **As a program:** double-click `Install Asset Forge.bat` once. It puts an **Asset Forge** shortcut with its own icon on
+  the desktop and in the Start menu; that opens Asset Forge in its own window (no browser tabs). The engine runs
+  invisibly and stops by itself 10 minutes after the last window closes.
+- **Quick:** double-click `Start Asset Forge.bat`. The window opens in your browser.
 - **Terminal:** `npm start` (opens the window) or `node src/server/index.js --no-open`.
 - **Claude Code:** just ask Claude, in this folder, to build something. The engine starts by itself.
 
@@ -116,6 +120,18 @@ AIs that have their own image tools (like PixelLab in Claude Code) can simply `i
 - **Voxels**: a `voxels` object type (3D pixels) with build mode in the window (click to add, Shift to remove, Alt to paint),
   `edit_voxels`, `voxels_from_image` (pixel sprite → 3D blocks) and `import_vox` (MagicaVoxel).
 - **PixelLab** joins the AI services: `generate_image { service: "pixellab" }` (pixflux, or image-to-pixelart with a reference).
+
+## What's in Phase 8
+
+- **Size reference**: the 🧍 button shows a see-through 1.8 m person; `render_preview { sizeReference: true }` for AIs.
+- **Asset library** (📚 Library): `save_asset` stores an object with a thumbnail, tags and description; `search_library`
+  finds assets, images and models by words or tags; `place_asset`, `tag_item`, `delete_library_item`.
+- **Windows program**: icon (`assets/icon.ico`, made by `scripts/make-icon.js`), app window, shortcuts (`Install Asset Forge.bat`).
+- **Sharing**: `Share Asset Forge.bat` asks for a password and opens Asset Forge to your local network. Others log in in their
+  browser; AIs elsewhere use `FORGE_URL=http://<address>:7777` and `FORGE_PASSWORD=<password>` with the MCP server or CLI.
+  Other computers cannot read or write files on this PC by path, nor change AI service settings. Windows may ask once
+  whether Node.js may use the network. For friends outside your home network, use a tunnel service (e.g. Tailscale).
+- **Safety**: requests from other websites (CSRF) and unknown host names (DNS rebinding) are now refused, also without sharing.
 
 ## How AIs control it
 

@@ -11,7 +11,8 @@ import * as tiles from './tiles.js';
 import * as superpowers from './superpowers.js';
 import * as pixel2d from './pixel2d.js';
 import * as voxels from './voxels.js';
+import * as library from './library.js';
 
 export function registerBuiltins(registry, api) {
-  for (const mod of [scene, objects, modeling, animation, assets, ai, project, render, game, tiles, superpowers, pixel2d, voxels]) mod.register(registry, api);
+  for (const mod of [scene, objects, modeling, animation, assets, ai, project, render, game, tiles, superpowers, pixel2d, voxels, library]) mod.register(registry, api);
 }

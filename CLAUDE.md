@@ -39,6 +39,11 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
 - Phase 7: 2D effects and parallax in `web/js/fx2d.js`, pixel editor `web/js/pixeleditor.js` (saves via import_image),
   voxel mesh + click picking `web/js/voxels.js`, `.vox` reader `src/core/vox.js`, Aseprite writer `src/core/aseprite.js`,
   commands in `src/core/commands/pixel2d.js` and `voxels.js`. Picture operations go through the `image_op` bridge request.
+- Access control lives in `src/server/access.js`: same-origin + Host checks on every request and WebSocket upgrade,
+  password (cookie session or Bearer) for non-local callers when sharing (`FORGE_HOST`, `FORGE_PASSWORD`), and no
+  path/project arguments or AI-key changes from other computers. `FORGE_TRUST_LOCAL=0` makes local callers log in (tests).
+- Windows launcher: `scripts/launch.ps1` (hidden engine with `--idle-exit=10`, Edge/Chrome `--app` window),
+  `scripts/install-shortcuts.ps1`, icon from `scripts/make-icon.js`. Asset library: `src/core/commands/library.js`.
 - For development, run a second engine (`FORGE_PORT=7791`, `FORGE_WORKSPACE` in a temp folder) so the user's
   window on 7777 is not disturbed.
 

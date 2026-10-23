@@ -205,10 +205,10 @@ function startWindow() {
   })();
 
   // toolbar
-  document.querySelectorAll('#mode-tools button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+  document.querySelectorAll('#mode-tools button[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
   function setMode(mode) {
     gizmo.setMode(mode);
-    document.querySelectorAll('#mode-tools button').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+    document.querySelectorAll('#mode-tools button[data-mode]').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
   }
 
   document.getElementById('undo-btn').onclick = () => run('undo');
@@ -223,6 +223,12 @@ function startWindow() {
   document.getElementById('game-btn').onclick = openGameModal;
   document.getElementById('ai-btn').onclick = openAiModal;
   document.getElementById('check-btn').onclick = () => openQualityModal();
+  document.getElementById('library-btn').onclick = () => openLibraryModal();
+  document.getElementById('person-btn').onclick = (e) => {
+    const on = !view.sizeRef.visible;
+    view.setSizeReference(on);
+    e.currentTarget.classList.toggle('active', on);
+  };
   document.getElementById('play-btn').onclick = () => toggleAnimation(!state.anim.playing);
   document.getElementById('anim-select').onchange = (e) => { state.anim.name = e.target.value; if (state.anim.playing) toggleAnimation(true); };
   document.getElementById('snap-select').onchange = (e) => {
@@ -608,9 +614,60 @@ function recipePanel(o) {
         if (r) { window.forgeSelect(r.group); window.forgeFrame(); toast('Click a variation, then "Keep this one"'); }
       },
     }, '▦ Variations'),
+    el('button', {
+      title: 'Save to the asset library with a thumbnail and tags',
+      onclick: async () => {
+        const tags = prompt('Tags for the library, separated by commas (e.g. prop, wood, medieval):', o.recipe ? o.recipe.command.replace('make_', '') : '');
+        if (tags === null) return;
+        const r = await run('save_asset', { id: o.id, tags: tags.split(',').map((t) => t.trim()).filter(Boolean) });
+        if (r) toast(`Saved "${r.asset}" to the library`);
+      },
+    }, '📚 Save to library'),
     el('button', { title: 'Store as a template you can place in any project', onclick: () => run('save_recipe', { id: o.id }).then((r) => r && toast(`Saved recipe "${r.recipe}"`)) }, '💾 Save as recipe'),
     el('button', { onclick: () => openQualityModal(o.id) }, '✔ Check')));
   return el('div', {}, el('h3', {}, o.recipe ? 'Recipe' : 'Versions'), el('div', { class: 'prop-group' }, items));
+}
+
+// ---- asset library ----------------------------------------------------------------
+
+function openLibraryModal() {
+  const query = el('input', { type: 'text', placeholder: 'Search: name, tag, description, AI prompt…' });
+  const kind = sel([['', 'everything'], ['asset', 'saved assets'], ['image', 'images'], ['model', '3D models']], '');
+  const tagBar = el('div', { class: 'btn-row' });
+  const grid = el('div', { class: 'lib-grid' });
+  const chosen = new Set();
+  let timer;
+  const search = async () => {
+    const r = await run('search_library', { query: query.value, kind: kind.value || undefined, tags: [...chosen] });
+    if (!r) return;
+    tagBar.innerHTML = '';
+    for (const t of r.tags) tagBar.append(el('button', { class: `tiny${chosen.has(t) ? ' primary' : ''}`, onclick: () => { chosen.has(t) ? chosen.delete(t) : chosen.add(t); search(); } }, `#${t}`));
+    grid.innerHTML = '';
+    if (!r.items.length) grid.append(el('p', { class: 'muted' }, 'Nothing found. Save objects with "📚 Save to library" in the object panel.'));
+    for (const item of r.items) grid.append(libraryCard(item, search));
+  };
+  query.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(search, 200); });
+  kind.onchange = search;
+  openModal('Asset library', el('div', {}, el('div', { class: 'form-grid' }, field('Search', query), field('Show', kind)), tagBar, grid));
+  query.focus();
+  search();
+}
+
+function libraryCard(item, refresh) {
+  const place = async () => {
+    const r = item.kind === 'asset' ? await run('place_asset', { name: item.id })
+      : item.kind === 'image' ? await run('add_object', { type: 'image', name: item.name, params: { assetId: item.id } })
+        : await run('add_object', { type: 'model', name: item.name, params: { assetId: item.id } });
+    if (r?.id) { closeModal(); window.forgeSelect(r.id); window.forgeFrame(); }
+  };
+  return el('div', { class: 'lib-card', title: item.description || item.madeBy?.prompt || item.name },
+    item.thumbUrl ? el('img', { src: item.thumbUrl, loading: 'lazy' }) : el('div', { class: 'lib-noimg' }, item.kind === 'model' ? '🧊' : '?'),
+    el('div', { class: 'lib-name' }, item.name),
+    el('div', { class: 'lib-tags' }, `${item.kind}${item.tags?.length ? ` · #${item.tags.join(' #')}` : ''}`),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'tiny primary', onclick: place }, 'Place'),
+      el('button', { class: 'tiny', onclick: async () => { const t = prompt('Tags, separated by commas:', (item.tags ?? []).join(', ')); if (t !== null && await run('tag_item', { kind: item.kind, id: item.id, tags: t.split(',').map((x) => x.trim()).filter(Boolean) })) refresh(); } }, 'Tags'),
+      el('button', { class: 'tiny danger', onclick: async () => { if (confirm(`Delete "${item.name}" from the library for good?`) && await run('delete_library_item', { kind: item.kind, id: item.id })) refresh(); } }, '✕')));
 }
 
 async function openQualityModal(id) {
@@ -740,8 +797,19 @@ function environmentPanel() {
     el('p', { class: 'big-hint' },
       'Everything you can click here, an AI can do too. In Claude Code, inside the Asset Forge folder, the tool connects automatically. ',
       'Other AIs and scripts can use the HTTP API at ', el('code', {}, `${location.origin}/api/commands`), '.'),
+    sharingInfo(),
     el('p', { class: 'hint' }, 'Select an object to edit it. Drop images anywhere to import them.'),
   );
+}
+
+function sharingInfo() {
+  const box = el('p', { class: 'hint' });
+  (state.access ??= fetch('/api/access').then((r) => r.json()).catch(() => null)).then((a) => {
+    box.textContent = a?.sharing
+      ? `Shared on your network (password required): ${a.addresses.join(', ')}`
+      : 'Only this computer can use it. To share with others on your network, start it with "Share Asset Forge.bat".';
+  });
+  return box;
 }
 
 function houseStylePanel(env) {
@@ -757,7 +825,7 @@ function houseStylePanel(env) {
     pick.onchange = show;
     show();
     box.append(
-      env.houseStyle ? el('p', { class: 'hint' }, `Active: ${env.houseStyle}. Pixel art, sprites and tiles use its palette.`) : null,
+      ...(env.houseStyle ? [el('p', { class: 'hint' }, `Active: ${env.houseStyle}. Pixel art, sprites and tiles use its palette.`)] : []),
       row('Style', pick), swatches, el('p', { class: 'hint' }, styles[pick.value]?.description ?? ''),
       el('label', { class: 'inline' }, recolor, ' Recolour objects to the palette'),
       el('div', { class: 'btn-row' },
