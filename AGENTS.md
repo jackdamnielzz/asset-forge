@@ -22,7 +22,9 @@ The live versions always match the running software; the repository copies are r
   OpenAPI-aware tools (ChatGPT actions, LangChain, n8n, …) can import `/api/openapi.json` directly.
 - **Command line**: `node src/cli/forge.js <command> key=value …` or `… @args.json`.
 - **Shared Asset Forge on another computer**: use `http://<address>:7777` and send `Authorization: Bearer <password>`
-  (for MCP/CLI: set `FORGE_URL` and `FORGE_PASSWORD`). File paths are not allowed from other computers.
+  (for MCP/CLI: set `FORGE_URL` and `FORGE_PASSWORD`). From other computers, file paths (`path`, `project`, `to`)
+  and AI-service settings are not allowed, and a `url` must be a public address (not that computer or its network);
+  send `data` instead. These limits also apply inside `run_batch`. Five wrong passwords lock that address for a minute.
 
 ## Golden rules
 

@@ -148,9 +148,11 @@ These services cost money, so AIs are told to ask you first.
 <summary><b>🛟 Safety and comfort</b></summary>
 
 - Saves after every change, version history and checkpoints, and a daily backup (the last 7 are kept)
+- Never overwrites by accident: "save as" refuses a name that is taken, and library items still in use are only deleted after asking
 - A quality check finds floating parts, odd sizes, heavy models and more, each with a fix
 - An asset library with thumbnails, tags and search
-- Protection against other websites and unknown hosts; a password when sharing
+- Protection against other websites and unknown hosts; a password when sharing, with a lock after 5 wrong tries
+- Other computers cannot touch your files, change your AI keys or make Asset Forge download from your network
 </details>
 
 ## Documentation
