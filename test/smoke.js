@@ -197,6 +197,44 @@ try {
   check(/terrain_set_0\/mode = 1/.test(tileTres) && (tileTres.match(/peering_bit/g) ?? []).length === 64, 'tileset + Godot TileSet with corner terrains');
   await fs.copyFile(tileset.files.atlas, path.join(ROOT, 'test', 'last-tiles.png'));
 
+  // Phase 6: recipes, variations, quality check, house styles
+  await call('clear_scene');
+  const barrel = await call('make_barrel', { position: [1, 0, 0], wear: 0.1 });
+  const recipe = await call('get_recipe', { id: barrel.id });
+  check(recipe.command === 'make_barrel' && recipe.args.wear === 0.1 && !('position' in recipe.args), 'generators remember their recipe');
+  const remade = await call('remake', { id: barrel.id, changes: { wear: 0.9 } });
+  const rb = await call('get_object', { id: remade.id });
+  check(rb.recipe.args.wear === 0.9 && rb.position[0] === 1, 'remake changes options and keeps the place');
+  await call('undo');
+  check((await call('get_object', { id: barrel.id })).recipe.args.wear === 0.1, 'remake is one undo step');
+  const vars = await call('make_variations', { id: barrel.id, count: 4 });
+  check(vars.variations.length === 4 && Buffer.from(vars.image, 'base64').length > 10_000, 'variations are made side by side with a preview');
+  await call('keep_variation', { id: vars.variations[2].id });
+  const afterKeep = await call('get_scene');
+  check(!afterKeep.objects[vars.group] && afterKeep.objects[vars.variations[2].id].position[0] === 1, 'keep_variation replaces the original and tidies up');
+  const floaty = await call('add_object', { type: 'box', position: [4, 1.5, 0], params: { bevel: 0 }, material: { color: '#000000' } });
+  const q = await call('check_quality', {});
+  check(q.score < 100 && q.issues.some((i) => i.object === floaty.id && /Floats/.test(i.message)) && q.issues.some((i) => /sharp edges/.test(i.message)), 'quality check finds floating objects and sharp edges');
+  await call('save_recipe', { id: vars.variations[2].id, name: 'my_barrel' });
+  const hand = await call('add_object', { type: 'group', name: 'lamp_set' });
+  await call('add_object', { type: 'sphere', parent: hand.id, material: { preset: 'glow' } });
+  await call('save_recipe', { id: hand.id, name: 'lamp_set' });
+  const placed = await call('use_recipe', { name: 'lamp_set', position: [-3, 0, 0] });
+  const ps = await call('get_scene');
+  check(ps.objects[placed.id].position[0] === -3 && ps.order.some((oid) => ps.objects[oid].parent === placed.id), 'recipes of hand-built objects are placed again with their parts');
+  check((await call('list_recipes')).length === 2, 'recipes are listed in the library');
+  const styles = await call('list_house_styles');
+  check(Object.keys(styles).length >= 3, 'built-in house styles');
+  const applied = await call('apply_house_style', { name: 'retro_pixel' });
+  const env = (await call('get_scene')).environment;
+  const pico = new Set(styles.retro_pixel.palette);
+  const colorsNow = Object.values((await call('get_scene')).objects).filter((o) => o.material?.color).map((o) => o.material.color);
+  check(applied.recolored > 0 && env.style === 'lowpoly' && colorsNow.every((c) => pico.has(c)), 'house style sets the look and snaps colours to its palette');
+  const styled = await call('pixelate_image', { assetId: (await call('list_images'))[0].id, size: 24 });
+  check(!!styled.assetId, 'pixel tools use the house-style palette');
+  await call('save_house_style', { name: 'my_style' });
+  check(!!(await call('list_house_styles')).my_style?.custom, 'own house styles are saved');
+
   await call('open_project', { name: 'untitled' });
 
   const img = await call('import_image', { data: shot.image, name: 'my-render', addToScene: true });

@@ -92,7 +92,8 @@ export function register(registry, { z, engine }) {
       if (args.target) engine.getObject(args.target);
       const names = args.animations ?? (args.animation ? [args.animation] : []);
       for (const n of names) if (!engine.scene.animations?.[n]) throw new CommandError(`No animation "${n}". Existing: ${Object.keys(engine.scene.animations ?? {}).join(', ') || '(none)'}`);
-      const palette = args.palette ? resolvePalette(args.palette) : null;
+      // without an explicit palette, an active house style's palette is used
+      const palette = args.palette ? resolvePalette(args.palette) : engine.scene.environment.housePalette ?? null;
       if (args.palette && !palette) throw new CommandError(`Unknown palette "${args.palette}". Choose: ${Object.keys(PALETTES).join(', ')}`);
       const out = await engine.bridge.request('render_sprites', {
         target: args.target, directions: args.directions ?? 8, frameSize: args.frameSize ?? 64,

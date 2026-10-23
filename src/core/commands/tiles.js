@@ -42,7 +42,8 @@ export function register(registry, { z, engine }) {
       const overlay = { type: 'grass', ...args.overlay };
       base.name = args.base?.name ?? base.type;
       overlay.name = args.overlay?.name ?? overlay.type;
-      const palette = args.palette ? resolvePalette(args.palette) : null;
+      // without an explicit palette, an active house style's palette is used
+      const palette = args.palette ? resolvePalette(args.palette) : engine.scene.environment.housePalette ?? null;
       if (args.palette && !palette) throw new CommandError(`Unknown palette "${args.palette}". Choose: ${Object.keys(PALETTES).join(', ')}`);
       const out = await engine.bridge.request('render_tileset', {
         base, overlay, tileSize: args.tileSize ?? 16, palette, colors: args.colors ?? 16, edge: args.edge ?? true, roughness: args.roughness ?? 0.35, seed: args.seed ?? 1,

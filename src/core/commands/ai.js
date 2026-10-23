@@ -182,7 +182,7 @@ export function register(registry, { z, engine }) {
       name: z.string().optional(),
     }),
     async handler({ assetId, size, colors, palette, outline, name }) {
-      return processImage('pixelate', assetId, { size: size ?? 64, colors: colors ?? 16, palette: resolvePalette(palette), outline: outline ?? null }, name);
+      return processImage('pixelate', assetId, { size: size ?? 64, colors: colors ?? 16, palette: resolvePalette(palette) ?? engine.scene.environment.housePalette ?? null, outline: outline ?? null }, name);
     },
   });
 
@@ -210,7 +210,7 @@ export function register(registry, { z, engine }) {
       if (!v) throw new CommandError(`Unknown video "${args.videoId}". See list_library.`);
       const out = await engine.bridge.request('video_frames', {
         file: v.file, frames: args.frames ?? 8, frameSize: args.frameSize ?? 96, start: args.start ?? 0, end: args.end,
-        pixelArt: !!args.pixelArt, colors: args.colors ?? 24, palette: resolvePalette(args.palette), removeBackground: !!args.removeBackground,
+        pixelArt: !!args.pixelArt, colors: args.colors ?? 24, palette: resolvePalette(args.palette) ?? engine.scene.environment.housePalette ?? null, removeBackground: !!args.removeBackground,
       });
       const dir = path.join(engine.paths.exports, 'sprites');
       await fs.mkdir(dir, { recursive: true });

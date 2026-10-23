@@ -8,7 +8,8 @@ import * as animation from './animation.js';
 import * as game from './game.js';
 import * as ai from './ai.js';
 import * as tiles from './tiles.js';
+import * as superpowers from './superpowers.js';
 
 export function registerBuiltins(registry, api) {
-  for (const mod of [scene, objects, modeling, animation, assets, ai, project, render, game, tiles]) mod.register(registry, api);
+  for (const mod of [scene, objects, modeling, animation, assets, ai, project, render, game, tiles, superpowers]) mod.register(registry, api);
 }

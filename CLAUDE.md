@@ -33,6 +33,9 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
   These services cost the user money: ask before calling generate_image / generate_video / generate_3d.
 - Pixel-art pipeline: `web/js/pixelart.js` (palette, dither, selout, clean-up), `web/js/imageops.js` (picture tools, video frames),
   `web/js/tileset.js` + `src/core/commands/tiles.js` (corner autotiles, Godot TileSet). Palettes: `src/shared/palettes.js`.
+- Generators get a `recipe` automatically (set in `Engine.execute` for category "generators"). Recipes, variations,
+  quality check and house styles are in `src/core/commands/superpowers.js`; the quality check measures via the
+  `inspect` bridge request. Saved recipes/styles live in `workspace/library/recipes|styles/`.
 - For development, run a second engine (`FORGE_PORT=7791`, `FORGE_WORKSPACE` in a temp folder) so the user's
   window on 7777 is not disturbed.
 

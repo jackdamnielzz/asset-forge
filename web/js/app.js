@@ -60,6 +60,7 @@ function connect(onScene) {
           export_glb: (o) => view.exportGlb(o),
           render_sprites: (o) => view.renderSprites(o),
           render_tileset: (o) => renderTileset(o),
+          inspect: (o) => view.inspect(o),
           image_op: (o) => imageOp(o.op, o.file, o.options),
           video_frames: (o) => videoFrames(o),
         };
@@ -205,6 +206,7 @@ function startWindow() {
   document.getElementById('render-btn').onclick = openRenderModal;
   document.getElementById('game-btn').onclick = openGameModal;
   document.getElementById('ai-btn').onclick = openAiModal;
+  document.getElementById('check-btn').onclick = () => openQualityModal();
   document.getElementById('play-btn').onclick = () => toggleAnimation(!state.anim.playing);
   document.getElementById('anim-select').onchange = (e) => { state.anim.name = e.target.value; if (state.anim.playing) toggleAnimation(true); };
   document.getElementById('snap-select').onchange = (e) => {
@@ -347,6 +349,11 @@ function renderLibrary() {
   }
   const models = document.getElementById('model-library');
   models.innerHTML = '';
+  const recipes = Object.values(state.library.recipes ?? {});
+  if (recipes.length) {
+    models.append(el('h3', { style: 'margin-top:12px' }, 'Recipes'), el('div', {}, recipes.map((r) => el('span', { class: 'chip', title: r.command ? `generator: ${r.command}` : 'saved objects' },
+      r.name, el('button', { title: 'Place in scene', onclick: async () => { const x = await run('use_recipe', { name: r.name }); if (x?.id) window.forgeSelect(x.id); } }, '+')))));
+  }
   const list = Object.values(state.library.models ?? {});
   if (list.length) {
     models.append(el('h3', { style: 'margin-top:12px' }, '3D models'), el('div', {}, list.map((m) => el('span', { class: 'chip', title: m.madeBy?.prompt ?? m.name },
@@ -437,6 +444,7 @@ function objectPanel(o) {
   if (paramKeys.length) {
     parts.push(el('h3', {}, 'Shape'), el('div', { class: 'prop-group' }, paramKeys.map((k) => paramRow(o, k, upd))));
   }
+  parts.push(recipePanel(o));
   if (o.type !== 'group') parts.push(modelingPanel(o));
   parts.push(animationPanel(o));
 
@@ -533,6 +541,50 @@ function modelingPanel(o) {
       }, '◌ Circle')),
   );
   return el('div', {}, el('h3', {}, 'Modelling'), el('div', { class: 'prop-group' }, items));
+}
+
+// ---- recipes & variations ------------------------------------------------------------
+
+function recipePanel(o) {
+  const items = [];
+  if (o.variationOf) {
+    items.push(el('p', { class: 'hint' }, 'This is one of several variations.'),
+      el('button', { class: 'primary', onclick: () => run('keep_variation', { id: o.id }).then((r) => r && window.forgeSelect(r.id)) }, '★ Keep this one'));
+  }
+  if (o.recipe) {
+    const area = el('textarea', { spellcheck: 'false' }, JSON.stringify(o.recipe.args, null, 1));
+    items.push(
+      el('p', { class: 'hint' }, `Made with ${o.recipe.command}. Change the options and press Re-make.`),
+      area,
+      el('div', { class: 'btn-row' },
+        el('button', { onclick: () => { let changes; try { changes = JSON.parse(area.value); } catch { return toast('Options are not valid JSON', true); } run('remake', { id: o.id, changes }).then((r) => r && window.forgeSelect(r.id)); } }, '↻ Re-make'),
+        el('button', { onclick: () => run('remake', { id: o.id, changes: { seed: Math.floor(Math.random() * 9999) } }).then((r) => r && window.forgeSelect(r.id)) }, '🎲 New seed')));
+  }
+  items.push(el('div', { class: 'btn-row' },
+    el('button', {
+      title: 'Several versions side by side; pick the best with "Keep this one"',
+      onclick: async () => {
+        const n = Number(prompt('How many variations?', '6'));
+        if (!(n > 1)) return;
+        const r = await run('make_variations', { id: o.id, count: n });
+        if (r) { window.forgeSelect(r.group); window.forgeFrame(); toast('Click a variation, then "Keep this one"'); }
+      },
+    }, '▦ Variations'),
+    el('button', { title: 'Store as a template you can place in any project', onclick: () => run('save_recipe', { id: o.id }).then((r) => r && toast(`Saved recipe "${r.recipe}"`)) }, '💾 Save as recipe'),
+    el('button', { onclick: () => openQualityModal(o.id) }, '✔ Check')));
+  return el('div', {}, el('h3', {}, o.recipe ? 'Recipe' : 'Versions'), el('div', { class: 'prop-group' }, items));
+}
+
+async function openQualityModal(id) {
+  openModal('Quality check', el('p', { class: 'muted' }, 'Checking…'));
+  const r = await run('check_quality', id ? { id } : {});
+  if (!r) return closeModal();
+  const icon = { error: '⛔', warning: '⚠️', tip: '💡' };
+  openModal('Quality check', el('div', {},
+    el('h3', {}, `Score ${r.score} / 100 · ${r.checked} object${r.checked === 1 ? '' : 's'} checked`),
+    r.issues.length ? el('div', { class: 'menu-list' }, r.issues.map((i) => el('button', { onclick: () => { closeModal(); window.forgeSelect(i.object); window.forgeFrame(); } },
+      `${icon[i.severity]} ${i.name ?? i.object}: ${i.message} `, el('span', { class: 'muted' }, i.fix))))
+      : el('p', {}, 'No problems found. 🎉')));
 }
 
 // ---- animation ---------------------------------------------------------------------
@@ -645,12 +697,36 @@ function environmentPanel() {
       row('Ground', el('input', { type: 'checkbox', checked: env.ground !== false, onchange: (e) => setEnv({ ground: e.target.checked }) })),
     ),
     stylePanel(env),
+    houseStylePanel(env),
     el('h3', {}, 'Connect an AI'),
     el('p', { class: 'big-hint' },
       'Everything you can click here, an AI can do too. In Claude Code, inside the Asset Forge folder, the tool connects automatically. ',
       'Other AIs and scripts can use the HTTP API at ', el('code', {}, `${location.origin}/api/commands`), '.'),
     el('p', { class: 'hint' }, 'Select an object to edit it. Drop images anywhere to import them.'),
   );
+}
+
+function houseStylePanel(env) {
+  const box = el('div', { class: 'prop-group' }, el('p', { class: 'muted' }, 'Loading…'));
+  // fetched once: the panel is rebuilt on every scene change
+  (state.houseStyles ??= run('list_house_styles')).then((styles) => {
+    if (!styles) return;
+    box.innerHTML = '';
+    const pick = sel(Object.entries(styles).map(([k, s]) => [k, `${k}${s.custom ? ' (yours)' : ''}`]), env.houseStyle ?? Object.keys(styles)[0]);
+    const recolor = el('input', { type: 'checkbox', checked: true });
+    const swatches = el('div', { class: 'swatches' });
+    const show = () => { swatches.innerHTML = ''; for (const c of styles[pick.value]?.palette ?? []) swatches.append(el('span', { style: `background:${c}`, title: c })); };
+    pick.onchange = show;
+    show();
+    box.append(
+      env.houseStyle ? el('p', { class: 'hint' }, `Active: ${env.houseStyle}. Pixel art, sprites and tiles use its palette.`) : null,
+      row('Style', pick), swatches, el('p', { class: 'hint' }, styles[pick.value]?.description ?? ''),
+      el('label', { class: 'inline' }, recolor, ' Recolour objects to the palette'),
+      el('div', { class: 'btn-row' },
+        el('button', { class: 'primary', onclick: () => run('apply_house_style', { name: pick.value, recolor: recolor.checked }) }, 'Apply'),
+        el('button', { onclick: () => { const n = prompt('Name for this house style (takes the current light, style and colours):'); if (n) run('save_house_style', { name: n }).then((r) => { if (r) { state.houseStyles = null; toast(`Saved "${r.name}"`); renderProps(); } }); } }, 'Save current look')));
+  });
+  return el('div', {}, el('h3', {}, 'House style'), box);
 }
 
 function stylePanel(env) {

@@ -624,6 +624,34 @@ export class SceneView {
     return { png: out.toDataURL('image/png').split(',')[1], width, height };
   }
 
+  // Measurements for the quality check: world-space bounds and triangle counts, per object
+  // and (with parts) per shape inside it.
+  async inspect({ ids, parts = false }) {
+    await this.whenReady();
+    this.resetPose();
+    this.content.updateMatrixWorld(true);
+    const out = {};
+    for (const id of ids) {
+      const root = this.nodes.get(id)?.obj;
+      if (!root) continue;
+      const box = contentBox(root);
+      let triangles = 0;
+      const list = [];
+      root.traverseVisible((m) => {
+        if (!m.isMesh || m.userData.isOutline) return;
+        const g = m.geometry;
+        triangles += (g.index ? g.index.count : g.attributes.position?.count ?? 0) / 3;
+        if (parts && m.userData.forgeId && this.nodes.get(m.userData.forgeId)?.obj === m) {
+          const b = contentBox(m);
+          if (!b.isEmpty()) list.push({ id: m.userData.forgeId, min: b.min.toArray(), max: b.max.toArray(), size: b.getSize(new THREE.Vector3()).length() });
+        }
+      });
+      if (box.isEmpty()) continue;
+      out[id] = { min: box.min.toArray(), max: box.max.toArray(), triangles: Math.round(triangles), parts: parts ? list : undefined };
+    }
+    return { objects: out };
+  }
+
   // Hide everything except one object (with its parents and children). Returns an undo function.
   isolate(targetId) {
     const target = this.nodes.get(targetId)?.obj;

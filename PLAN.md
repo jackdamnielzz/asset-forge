@@ -113,7 +113,7 @@
 - Character maker with idle/walk/run/attack/jump
 - Godot SpriteFrames export for AnimatedSprite2D
 
-### Phase 6 — AI superpowers
+### Phase 6 — AI superpowers ✅ done (2026-10-23)
 - Recipes: every asset remembers how it was made and can be re-made with changes
 - Variations grid ("make 12 versions")
 - Quality check (floating parts, overlaps, size, polygon count)

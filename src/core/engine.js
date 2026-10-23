@@ -91,6 +91,11 @@ export class Engine extends EventEmitter {
     const result = mutates
       ? await this.recorded(() => this.registry.execute(name, args, { engine: this, scene: this.scene, meta }))
       : await this.registry.execute(name, args, { engine: this, scene: this.scene, meta });
+    // Generators leave a recipe on the object they build, so it can be re-made with changes later.
+    if (def?.category === 'generators' && result?.id && this.scene.objects[result.id]) {
+      const { position, rotation, name: _n, ...rest } = args;
+      this.scene.objects[result.id].recipe = { command: name, args: rest };
+    }
     this.emit('log', { command: name, source: meta.source ?? 'unknown', ok: true, time: Date.now() });
     if (mutates) this.changed();
     return result ?? { ok: true };

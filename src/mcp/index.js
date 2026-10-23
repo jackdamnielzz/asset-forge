@@ -35,7 +35,9 @@ How to make beautiful assets:
    AI services (cost the user money, ask first): generate_image (openai, google Nano Banana, nanogpt), generate_video
    (nanogpt), generate_3d (fal). If you have your own image tools, make the picture there and import_image it.
    Free picture tools: remove_background, make_seamless, video_to_sprites, import_model (.glb).
-9. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
+9. Iterate smartly: remake changes a generator-made object's options in place; make_variations shows several
+   versions (pick with keep_variation); check_quality before delivering; apply_house_style keeps a game consistent.
+10. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
 
 const server = new Server({ name: 'asset-forge', version: '0.1.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
 

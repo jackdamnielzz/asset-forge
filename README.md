@@ -3,7 +3,7 @@
 Our own asset-creation tool, in the spirit of Blender, built so that **AI models can drive
 it completely**, and people can too. See [PLAN.md](PLAN.md) for the vision and roadmap.
 
-**Status:** Phases 1–5 are done (foundation, beauty, shapes & generators, games, pixel art & AI services).
+**Status:** Phases 1–6 are done (foundation, beauty, shapes & generators, games, pixel art & AI services, AI superpowers).
 
 ## Starting it
 
@@ -88,6 +88,19 @@ AIs that have their own image tools (like PixelLab in Claude Code) can simply `i
 - `make_tileset`: seamless pixel tiles where one ground blends into another (16 corner tiles), plus a Godot **TileSet** with terrains
 - `make_character`: a jointed character with idle, walk, run, attack and jump, ready for 8-direction sprites
 - CLI tip: `node src/cli/forge.js <command> @args.json` reads arguments from a file
+
+## What's in Phase 6
+
+- **Recipes**: everything made by a generator remembers its options (`get_recipe`). `remake` rebuilds it with
+  changes in the same place ("same chest, but older and bigger"). `save_recipe` / `use_recipe` store any object,
+  hand-built ones too, as a template for other projects.
+- **Variations**: `make_variations` builds several versions side by side and returns a picture of them;
+  `keep_variation` keeps the best one in the original's place.
+- **Quality check**: `check_quality` (✔ Check button) finds floating or loose parts, sinking objects, odd sizes,
+  heavy polygon counts, missing pictures and beauty issues, with a score and a fix for each.
+- **House styles**: `apply_house_style` gives a whole project one look (palette, light, style, effects) and snaps
+  colours to the palette; sprites, tiles and pixel art then use that palette too. Built in: storybook, dark_fantasy,
+  retro_pixel. `save_house_style` saves your own.
 
 ## How AIs control it
 
