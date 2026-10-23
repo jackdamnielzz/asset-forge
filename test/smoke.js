@@ -167,6 +167,20 @@ try {
     const pl = await call('generate_image', { service: 'pixellab', prompt: 'a tiny knight', size: '48x48', transparent: true, references: [o1.assetId] });
     const plreq = ai.seen.find((r) => r.url === '/pixellab/create-image-pixflux');
     check(pl.assetId && plreq.headers.authorization === 'Bearer test-key-pixellab' && plreq.body.image_size.width === 48 && plreq.body.no_background && plreq.body.init_image.type === 'base64', 'PixelLab: pixflux request with a starting image');
+    // full PixelLab: tools and settings read from PixelLab's own specification
+    const plTools = await call('pixellab_tools');
+    check(plTools.some((t) => t.tool === 'create-tileset' && t.background) && plTools.some((t) => t.tool === 'objects/{object_id}/animations'), 'PixelLab tools are read from its specification');
+    const plInfo = await call('pixellab_tool_info', { tool: 'create-image-pixflux' });
+    check(plInfo.params.properties.outline.enum.length === 4 && plInfo.params.properties.init_image['x-image'] && plInfo.params.properties.image_size.properties.width.maximum === 400, 'PixelLab settings come with choices, limits and picture fields');
+    const plRun = await call('pixellab_run', { tool: 'create-image-pixflux', params: { description: 'a gem', image_size: { width: 32, height: 32 }, outline: 'selective outline', init_image: o1.assetId } });
+    const plReq = ai.seen.filter((r) => r.url === '/pixellab/create-image-pixflux').pop();
+    check(plRun.assets.length === 1 && plReq.body.outline === 'selective outline' && plReq.body.init_image.type === 'base64' && plReq.body.init_image.base64.length > 100, 'pixellab_run sends every setting and converts library pictures');
+    const plJob = await call('pixellab_run', { tool: 'create-tileset', params: { lower_description: 'water', upper_description: 'grass' } });
+    check(plJob.jobId === 'job1' && plJob.assets.length === 3, `long PixelLab jobs are followed and all pictures collected (${plJob.assets.length})`);
+    const plPath = await call('pixellab_run', { tool: 'objects/{object_id}/animations', params: { action: 'wave' }, pathParams: { object_id: 'obj9' } });
+    check(plPath.response.animation_id === 'anim1' && plPath.note, 'tools with an id in their address work and report non-picture results');
+    const plBad = await fetch(`${BASE}/api/commands/pixellab_run`, { method: 'POST', body: JSON.stringify({ tool: 'objects/{object_id}/animations', params: { action: 'x' } }) }).then((r) => r.json());
+    check(!plBad.ok && /needs object_id/.test(plBad.error), 'asks for missing ids');
     const vid = await call('generate_video', { service: 'nanogpt', prompt: 'a campfire', image: n1.assetId, duration: 5 });
     check(vid.videoId && ai.seen.some((r) => r.url.startsWith('/nanogpt/video/status?requestId=vid_test1')), 'NanoGPT: video job is polled and saved');
     const m3d = await call('generate_3d', { service: 'fal', image: o1.assetId, size: 1.2 });

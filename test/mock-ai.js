@@ -1,11 +1,13 @@
 // A fake AI server that answers like OpenAI, Google Gemini, NanoGPT and fal.ai do
 // (following their public docs), so the connections can be tested without real keys.
 import http from 'node:http';
+import fs from 'node:fs/promises';
 
 export function startMockAi(port, { png, glb }) {
   const seen = [];
   const base = `http://127.0.0.1:${port}`;
   let videoPolls = 0;
+  let tilesetPolls = 0;
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -19,6 +21,16 @@ export function startMockAi(port, { png, glb }) {
       return json({ candidates: [{ content: { parts: [{ text: 'here you go' }, { inlineData: { mimeType: 'image/png', data: png } }] } }] });
     }
     if (u.pathname === '/pixellab/create-image-pixflux' || u.pathname === '/pixellab/image-to-pixelart') return json({ usage: { type: 'usd', usd: 0.01 }, image: { type: 'base64', base64: png, format: 'png' } });
+    if (u.pathname === '/pixellab/openapi.json') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(await fs.readFile(new URL('./fixtures/pixellab-openapi.json', import.meta.url))); }
+    if (u.pathname === '/pixellab/balance') return json({ credits: { type: 'usd', usd: 0 }, subscription: { type: 'generations', status: 'active', generations: 1999, total: 2000 } });
+    if (u.pathname === '/pixellab/create-tileset') return json({ background_job_id: 'job1', tileset_id: 'ts1', status: 'processing', usage: { type: 'usd', usd: 0 } }, 202);
+    if (u.pathname === '/pixellab/background-jobs/job1') {
+      tilesetPolls++;
+      return json(tilesetPolls < 2 ? { id: 'job1', status: 'processing', created_at: 'x' } : { id: 'job1', status: 'completed', created_at: 'x', last_response: { tileset_id: 'ts1' }, usage: { type: 'usd', usd: 0.02 } });
+    }
+    if (u.pathname === '/pixellab/tilesets/ts1') return json({ id: 'ts1', tiles: [{ name: 'grass', image: { type: 'base64', base64: png } }, { name: 'water', image: { type: 'base64', base64: png } }], preview_url: `${base}/files/preview.png` });
+    if (u.pathname === '/files/preview.png') { res.writeHead(200, { 'Content-Type': 'image/png' }); return res.end(Buffer.from(png, 'base64')); }
+    if (u.pathname === '/pixellab/objects/obj9/animations') return json({ ok: true, object_id: 'obj9', animation_id: 'anim1' });
     if (u.pathname === '/nanogpt/v1/images/generations') return json({ created: 1, data: [{ b64_json: png }], cost: 0.01 });
     if (u.pathname === '/nanogpt/generate-video') return json({ runId: 'vid_test1', id: 'vid_test1', status: 'pending' }, 202);
     if (u.pathname === '/nanogpt/video/status') {

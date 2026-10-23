@@ -13,7 +13,8 @@ import * as pixel2d from './pixel2d.js';
 import * as voxels from './voxels.js';
 import * as library from './library.js';
 import * as history from './history.js';
+import * as pixellab from './pixellab.js';
 
 export function registerBuiltins(registry, api) {
-  for (const mod of [scene, objects, modeling, animation, assets, ai, project, render, game, tiles, superpowers, pixel2d, voxels, library, history]) mod.register(registry, api);
+  for (const mod of [scene, objects, modeling, animation, assets, ai, project, render, game, tiles, superpowers, pixel2d, voxels, library, history, pixellab]) mod.register(registry, api);
 }

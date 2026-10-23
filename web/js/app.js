@@ -10,6 +10,7 @@ import { renderTileset } from './tileset.js';
 import { renderEffect, renderParallax, EFFECTS } from './fx2d.js';
 import { voxelHit } from './voxels.js';
 import { openPixelEditor } from './pixeleditor.js';
+import { pixellabTab } from './pixellabui.js';
 
 const DEG = Math.PI / 180;
 const role = new URLSearchParams(location.search).get('role') === 'renderer' ? 'renderer' : 'viewer';
@@ -1113,7 +1114,7 @@ function tilesTab() {
 // ---- AI services ----------------------------------------------------------------
 
 function openAiModal() {
-  tabbedModal('AI and picture tools', { Image: aiImageTab, Video: aiVideoTab, '3D model': ai3dTab, 'Picture tools': pictureToolsTab, Services: aiServicesTab }, 'forge.aiTab');
+  tabbedModal('AI and picture tools', { PixelLab: () => pixellabTab({ el, run, state, toast, imageActions }), Image: aiImageTab, Video: aiVideoTab, '3D model': ai3dTab, 'Picture tools': pictureToolsTab, Services: aiServicesTab }, 'forge.aiTab');
 }
 
 async function aiServices() {

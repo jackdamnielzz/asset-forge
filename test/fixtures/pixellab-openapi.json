@@ -1,0 +1,60 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "PixelLab test fixture (same shapes as the real v2 spec)", "version": "test" },
+  "paths": {
+    "/create-image-pixflux": {
+      "post": {
+        "summary": "Create image (pixflux)",
+        "description": "Creates a pixel art image.",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateImagePixfluxRequest" } } } },
+        "responses": { "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateImagePixfluxResponse" } } } } }
+      }
+    },
+    "/create-tileset": {
+      "post": {
+        "summary": "Create top-down tileset (async processing)",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTilesetRequest" } } } },
+        "responses": {
+          "202": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTilesetBackgroundResponse" } } } }
+        }
+      }
+    },
+    "/objects/{object_id}/animations": {
+      "post": {
+        "summary": "Add an animation to an existing object",
+        "parameters": [{ "name": "object_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "action": { "type": "string" } }, "required": ["action"] } } } },
+        "responses": { "200": { "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/background-jobs/{job_id}": { "get": { "summary": "Get background job status", "responses": { "200": {} } } },
+    "/tilesets/{tileset_id}": { "get": { "summary": "Get generated tileset by ID", "responses": { "200": {} } } },
+    "/balance": { "get": { "summary": "Get balance", "responses": { "200": {} } } }
+  },
+  "components": {
+    "schemas": {
+      "Base64Image": {
+        "type": "object", "title": "Base64Image",
+        "properties": { "type": { "type": "string", "const": "base64" }, "base64": { "type": "string" }, "format": { "type": "string", "default": "png" } },
+        "required": ["base64"]
+      },
+      "ImageSize": { "type": "object", "properties": { "width": { "type": "integer", "minimum": 16, "maximum": 400 }, "height": { "type": "integer", "minimum": 16, "maximum": 400 } }, "required": ["width", "height"] },
+      "CreateImagePixfluxRequest": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "image_size": { "$ref": "#/components/schemas/ImageSize" },
+          "outline": { "anyOf": [{ "$ref": "#/components/schemas/Outline" }, { "type": "null" }] },
+          "text_guidance_scale": { "type": "number", "minimum": 1, "maximum": 20, "default": 8 },
+          "no_background": { "type": "boolean", "default": false },
+          "init_image": { "anyOf": [{ "$ref": "#/components/schemas/Base64Image" }, { "type": "null" }], "description": "Initial image to start from" }
+        },
+        "required": ["description", "image_size"]
+      },
+      "Outline": { "type": "string", "enum": ["single color black outline", "single color outline", "selective outline", "lineless"] },
+      "CreateImagePixfluxResponse": { "type": "object", "properties": { "image": { "$ref": "#/components/schemas/Base64Image" } } },
+      "CreateTilesetRequest": { "type": "object", "properties": { "lower_description": { "type": "string" }, "upper_description": { "type": "string" }, "tile_size": { "type": "object", "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } } } }, "required": ["lower_description", "upper_description"] },
+      "CreateTilesetBackgroundResponse": { "type": "object", "properties": { "background_job_id": { "type": "string" }, "tileset_id": { "type": "string" }, "status": { "type": "string", "const": "processing" } } }
+    }
+  }
+}

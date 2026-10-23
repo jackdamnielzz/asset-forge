@@ -35,6 +35,9 @@ How to make beautiful assets:
    glitter, heal, lightning), make_parallax, make_prop_sheet, make_iso_tiles, paint_pixels, recolor_image,
    make_palette_variants, extract_palette, check_pixel_style, export_aseprite. Voxels: add_object type "voxels",
    edit_voxels, voxels_from_image, import_vox.
+   PixelLab in full: pixellab_tools lists all 70+ PixelLab tools (images, 4/8-direction characters, animations,
+   tilesets, isometric tiles, UI, fonts, VFX, inpainting, rotation...), pixellab_tool_info shows every setting,
+   pixellab_run runs one (pictures as library ids or { render: objectId }); pixellab_balance is free.
    AI services (cost the user money, ask first): generate_image (openai, google Nano Banana, nanogpt), generate_video
    (nanogpt), generate_3d (fal). If you have your own image tools, make the picture there and import_image it.
    Free picture tools: remove_background, make_seamless, video_to_sprites, import_model (.glb).

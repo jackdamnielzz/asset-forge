@@ -141,6 +141,11 @@ AIs that have their own image tools (like PixelLab in Claude Code) can simply `i
   checkpoints you make yourself). Projects → "Earlier versions" to go back; `list_versions`, `save_checkpoint`, `restore_version`.
 - **Backups**: once a day a dated copy of all projects, the library and the history goes to `workspace-backups/`
   (last 7 kept); `backup_now { to }` copies everything to another folder, e.g. a USB stick.
+- **PixelLab in full** (✨ AI → PixelLab): every PixelLab tool (70+: images, characters in 4/8 directions, animations,
+  tilesets, isometric tiles, UI, fonts, effects, editing) with **all** of its settings, read live from PixelLab's own
+  specification, so new PixelLab features appear automatically. The window builds a form per tool; long jobs are followed
+  until done and every resulting picture lands in the library. Commands: `pixellab_tools`, `pixellab_tool_info`,
+  `pixellab_run`, `pixellab_balance`.
 - **Multi-select**: Ctrl+click (in the 3D view or the object list) selects several objects; group them (Ctrl+G),
   give them a material or colour, duplicate or delete them at once. `group_objects` / `ungroup` keep everything in place.
 

@@ -36,6 +36,10 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
 - Generators get a `recipe` automatically (set in `Engine.execute` for category "generators"). Recipes, variations,
   quality check and house styles are in `src/core/commands/superpowers.js`; the quality check measures via the
   `inspect` bridge request. Saved recipes/styles live in `workspace/library/recipes|styles/`.
+- Full PixelLab support (`src/core/pixellab.js`) is driven by https://api.pixellab.ai/v2/openapi.json, cached for a day
+  in workspace/cache. Fields that are Base64Image are marked `x-image`; library ids / { render } are converted.
+  Background jobs are polled via /background-jobs/{id}; results are found by walking the response (base64, data URLs,
+  image links) and, if needed, the detail routes in DETAIL_ROUTES. UI: `web/js/pixellabui.js` builds forms from the schema.
 - Phase 7: 2D effects and parallax in `web/js/fx2d.js`, pixel editor `web/js/pixeleditor.js` (saves via import_image),
   voxel mesh + click picking `web/js/voxels.js`, `.vox` reader `src/core/vox.js`, Aseprite writer `src/core/aseprite.js`,
   commands in `src/core/commands/pixel2d.js` and `voxels.js`. Picture operations go through the `image_op` bridge request.

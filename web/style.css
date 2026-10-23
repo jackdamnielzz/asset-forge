@@ -101,6 +101,8 @@ textarea { font: 11px ui-monospace, Consolas, monospace; color: inherit; backgro
 .icon-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .icon-grid img { width: 96px; height: 96px; margin: 0 !important; }
 img.pixelated { image-rendering: pixelated; }
+.pl-group { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px 2px; margin: 0 0 8px; }
+.pl-group legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
 .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 10px; }
 .lib-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .lib-card img, .lib-noimg { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; background: repeating-conic-gradient(#2a2d34 0 25%, #1f2228 0 50%) 0 0/16px 16px; margin: 0 !important; display: grid; place-items: center; font-size: 36px; }
