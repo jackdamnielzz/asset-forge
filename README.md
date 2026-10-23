@@ -33,8 +33,8 @@ all use the same command list, so anything one of them can do, the others can to
 | Who | How |
 |---|---|
 | Claude Code (in this folder) | Automatic via `.mcp.json` |
-| Claude Code (anywhere) | `claude mcp add asset-forge -- node D:/Programmeren/asset/src/mcp/index.js` |
-| Claude Desktop / Cursor / other MCP apps | Add an MCP server: command `node`, args `D:/Programmeren/asset/src/mcp/index.js` |
+| Claude Code (anywhere) | `claude mcp add asset-forge -- node D:/Programmeren/asset-forge/src/mcp/index.js` |
+| Claude Desktop / Cursor / other MCP apps | Add an MCP server: command `node`, args `D:/Programmeren/asset-forge/src/mcp/index.js` |
 | Any other AI, script or language | HTTP: `GET /api/commands` lists everything with input schemas; `POST /api/commands/<name>` with JSON runs one |
 | Terminal | `node src/cli/forge.js list`, `node src/cli/forge.js add_object type=box` |
 
