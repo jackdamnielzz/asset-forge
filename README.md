@@ -3,7 +3,7 @@
 Our own asset-creation tool, in the spirit of Blender, built so that **AI models can drive
 it completely**, and people can too. See [PLAN.md](PLAN.md) for the vision and roadmap.
 
-**Status:** Phases 1 (Foundation), 2 (Beauty) and 3 (Shapes & generators) are done.
+**Status:** Phases 1 (Foundation), 2 (Beauty), 3 (Shapes & generators) and 4 (Made for our games) are done.
 
 ## Starting it
 
@@ -48,6 +48,20 @@ The window lives at <http://127.0.0.1:7777>. Everything is saved automatically.
   coin (with symbol, stacks), lamp post, fence. Each has options and a seed for endless variations.
 - Generated textures are exported as JPEG, so GLB files stay small
 - Try it: `node src/cli/forge.js run examples/generators.json`
+
+## What's in Phase 4
+
+- **Animations**: `animate_object` with presets (spin, bob, pulse, swing, hinge, shake, hop) that can be
+  combined, or `set_keyframes` for custom movement. Play them with ▶ in the window. They are baked into GLB
+  exports, so Godot gets an AnimationPlayer.
+- **Sprite sheets**: `render_sprites` photographs an object from 1, 4 or 8 directions and every animation
+  frame, as crisp pixel art with a shared palette and outline (or smooth HD). A `.json` file describes the layout.
+- **Icons**: `make_icons` makes matching inventory icons (same angle, light, outline) for every object at once.
+- **Godot**: `export_godot` writes a `.glb` straight into a Godot 4 project with a collision shape
+  (`-colonly` / `-convcolonly` import hints) and animations; `export_each` exports every object or kit piece separately.
+- **Level kits**: `make_level_kit` (dungeon, cottage, scifi) builds floor, wall, door, window, pillar and stairs pieces on a grid.
+- **Snapping**: the small selector under the move/rotate/scale buttons snaps to a grid and to 15° turns.
+- Everything is in the new **🎮 Game** window too.
 
 ## How AIs control it
 

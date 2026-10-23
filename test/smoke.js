@@ -107,6 +107,42 @@ try {
   check(Buffer.from(genShot.image, 'base64').length > 40_000, 'all generators render together');
   const genGlb = await call('export_glb', { filename: 'generators' });
   check(genGlb.bytes > 100_000, `generators export to GLB (${Math.round(genGlb.bytes / 1024)} KB)`);
+  // Phase 4: animation, sprites, icons, Godot export, level kits
+  await call('new_project', { name: 'phase4' });
+  const coin = await call('make_coin', { symbol: 'G', radius: 0.3 });
+  await call('animate_object', { id: coin.id, preset: 'spin', duration: 1.5 });
+  await call('animate_object', { id: coin.id, preset: 'bob', params: { height: 0.1 } });
+  const anims = await call('list_animations');
+  check(anims.idle.tracks.length === 2 && anims.idle.duration === 1.5, 'animations stack on one object');
+  const badAnim = await fetch(`${BASE}/api/commands/animate_object`, { method: 'POST', body: JSON.stringify({ id: coin.id, preset: 'spin', params: { speed: 3 } }) }).then((r) => r.json());
+  check(!badAnim.ok && /Allowed/.test(badAnim.error), 'helpful error for wrong animation params');
+  const sprites = await call('render_sprites', { target: coin.id, filename: 'coin', animation: 'idle', frames: 6, frameSize: 48, directions: 4 });
+  const sheet = Buffer.from(sprites.image, 'base64');
+  check(sheet.readUInt32BE(16) === 6 * 48 && sheet.readUInt32BE(20) === 4 * 48 && sprites.palette.length > 3, 'sprite sheet has frames x directions and a palette');
+  await fs.copyFile(sprites.path, path.join(ROOT, 'test', 'last-sprites.png'));
+  const chest = await call('make_chest', { position: [2, 0, 0] });
+  const lid = Object.values((await call('get_scene')).objects).find((o) => o.parent === chest.id && o.name === 'lid');
+  await call('animate_object', { id: lid.id, preset: 'hinge', animation: 'open', duration: 2 });
+  const icons = await call('make_icons', { size: 128 });
+  check(icons.files.length === 2, 'make_icons renders one icon per object');
+  await fs.copyFile(icons.files[1], path.join(ROOT, 'test', 'last-icon.png'));
+  const chestGlb = await call('export_glb', { filename: 'chest', target: chest.id, collision: 'convex' });
+  const glbText = (await fs.readFile(chestGlb.path)).toString('latin1');
+  check(/-convcolonly/.test(glbText) && /"animations"/.test(glbText), 'GLB has a collision shape and animations');
+  const godot = path.join(workspace, 'fake-godot');
+  await fs.mkdir(godot);
+  await fs.writeFile(path.join(godot, 'project.godot'), '[application]\n');
+  const g = await call('export_godot', { project: godot, target: coin.id });
+  check(g.resPath === 'res://assets/forge/coin.glb', 'export_godot writes into the Godot project');
+  const notGodot = await fetch(`${BASE}/api/commands/export_godot`, { method: 'POST', body: JSON.stringify({ project: workspace }) }).then((r) => r.json());
+  check(!notGodot.ok && /not a Godot project/.test(notGodot.error), 'export_godot refuses folders without project.godot');
+  await call('clear_scene');
+  const levelKit = await call('make_level_kit', { style: 'dungeon' });
+  const each = await call('export_each', { group: levelKit.id, collision: 'mesh' });
+  check(each.files.length === 6, `level kit exports 6 separate pieces`);
+  const kitShot = await call('render_preview', { width: 640, height: 360 });
+  await fs.writeFile(path.join(ROOT, 'test', 'last-kit.png'), Buffer.from(kitShot.image, 'base64'));
+
   await call('open_project', { name: 'untitled' });
 
   const img = await call('import_image', { data: shot.image, name: 'my-render', addToScene: true });

@@ -125,6 +125,7 @@ export function register(registry, { z, engine }) {
       for (const o of Object.values(engine.scene.objects)) {
         if (o.booleans) o.booleans = o.booleans.filter((b) => !all.has(b.id));
       }
+      for (const a of Object.values(engine.scene.animations ?? {})) a.tracks = a.tracks.filter((t) => !all.has(t.target));
       return { deleted: [...all] };
     },
   });
@@ -151,6 +152,10 @@ export function register(registry, { z, engine }) {
       };
       const root = copy(id, src.parent);
       root.position = root.position.map((v, i) => v + offset[i]);
+      // copies move like the original
+      for (const a of Object.values(engine.scene.animations ?? {})) {
+        for (const t of a.tracks.filter((tr) => map[tr.target])) a.tracks.push({ ...structuredClone(t), target: map[t.target] });
+      }
       return { id: root.id, mapping: map };
     },
   });

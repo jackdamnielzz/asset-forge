@@ -122,6 +122,7 @@ export function register(registry, { z, engine }) {
       engine.scene.order = next.order;
       engine.scene.environment = next.environment;
       engine.scene.camera = next.camera ?? base.camera;
+      engine.scene.animations = next.animations ?? {};
       return { objects: engine.scene.order.length };
     },
   });

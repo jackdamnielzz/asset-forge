@@ -3,11 +3,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { SceneView } from './viewer.js';
 import { LIGHTING_PRESETS, MATERIAL_PRESETS, PATTERNS, STYLES, DEFAULT_EFFECTS, DEFAULT_STYLE_OPTIONS, FONTS } from '/shared/presets.js';
+import { ANIMATION_PRESETS } from '/shared/animations.js';
 
 const DEG = Math.PI / 180;
 const role = new URLSearchParams(location.search).get('role') === 'renderer' ? 'renderer' : 'viewer';
 
-const state = { scene: null, library: { images: {} }, selected: null, ws: null, lastCamera: null };
+const state = { scene: null, library: { images: {} }, selected: null, ws: null, lastCamera: null, anim: { playing: false, name: null, start: 0 } };
 let view;
 
 // ---- talking to the engine ----------------------------------------------------
@@ -51,7 +52,9 @@ function connect(onScene) {
     } else if (msg.type === 'request') {
       try {
         view.update(msg.scene);
-        const data = msg.kind === 'render' ? await view.renderImage(msg.opts) : await view.exportGlb(msg.opts);
+        const handlers = { render: (o) => view.renderImage(o), export_glb: (o) => view.exportGlb(o), render_sprites: (o) => view.renderSprites(o) };
+        if (!handlers[msg.kind]) throw new Error(`Unknown request ${msg.kind}`);
+        const data = await handlers[msg.kind](msg.opts);
         ws.send(JSON.stringify({ type: 'response', reqId: msg.reqId, ok: true, data }));
       } catch (err) {
         ws.send(JSON.stringify({ type: 'response', reqId: msg.reqId, ok: false, error: err.message }));
@@ -93,6 +96,7 @@ function startWindow() {
 
   gizmo.addEventListener('dragging-changed', (e) => {
     orbit.enabled = !e.value;
+    if (e.value && state.anim.playing) toggleAnimation(false);
     const node = view.nodes.get(state.selected);
     if (!node) return;
     node.locked = e.value;
@@ -137,6 +141,7 @@ function startWindow() {
     document.getElementById('project-name').textContent = scene.name;
     document.getElementById('lighting-select').value = scene.environment.lighting;
     document.getElementById('style-select').value = scene.environment.style ?? 'realistic';
+    updateAnimControls(scene);
     renderOutliner();
     renderProps();
   }
@@ -164,6 +169,9 @@ function startWindow() {
 
   (function loop() {
     requestAnimationFrame(loop);
+    const a = state.anim;
+    const anim = a.playing && state.scene?.animations?.[a.name];
+    if (anim) view.pose(a.name, (((performance.now() - a.start) / 1000) % anim.duration) / anim.duration);
     orbit.update();
     if (selBox.visible) selBox.update();
     view.draw();
@@ -185,6 +193,15 @@ function startWindow() {
   for (const k of Object.keys(STYLES)) styleSel.append(new Option(k, k));
   styleSel.onchange = () => run('set_style', { style: styleSel.value });
   document.getElementById('render-btn').onclick = openRenderModal;
+  document.getElementById('game-btn').onclick = openGameModal;
+  document.getElementById('play-btn').onclick = () => toggleAnimation(!state.anim.playing);
+  document.getElementById('anim-select').onchange = (e) => { state.anim.name = e.target.value; if (state.anim.playing) toggleAnimation(true); };
+  document.getElementById('snap-select').onchange = (e) => {
+    const step = Number(e.target.value);
+    gizmo.setTranslationSnap(step || null);
+    gizmo.setRotationSnap(step ? 15 * DEG : null);
+    gizmo.setScaleSnap(step ? 0.1 : null);
+  };
   document.getElementById('export-btn').onclick = exportGlb;
   document.getElementById('project-btn').onclick = openProjectModal;
   document.getElementById('modal-close').onclick = closeModal;
@@ -403,6 +420,7 @@ function objectPanel(o) {
     parts.push(el('h3', {}, 'Shape'), el('div', { class: 'prop-group' }, paramKeys.map((k) => paramRow(o, k, upd))));
   }
   if (o.type !== 'group') parts.push(modelingPanel(o));
+  parts.push(animationPanel(o));
 
   if (o.material) {
     const m = o.material;
@@ -497,6 +515,57 @@ function modelingPanel(o) {
       }, '◌ Circle')),
   );
   return el('div', {}, el('h3', {}, 'Modelling'), el('div', { class: 'prop-group' }, items));
+}
+
+// ---- animation ---------------------------------------------------------------------
+
+function animationPanel(o) {
+  const anims = state.scene.animations ?? {};
+  const mine = Object.entries(anims).flatMap(([name, a]) => a.tracks
+    .map((t, i) => ({ name, t, i }))
+    .filter(({ t }) => t.target === o.id));
+  const presetSel = el('select', {}, Object.entries(ANIMATION_PRESETS).map(([k, v]) => el('option', { value: k, title: v.description }, k)));
+  const nameInput = el('input', { type: 'text', value: state.anim.name ?? 'idle', title: 'Animation name (idle, open, hit...)' });
+  return el('div', {},
+    el('h3', {}, 'Animation'),
+    el('div', { class: 'prop-group' },
+      mine.length ? row('Moves', el('div', {}, mine.map(({ name, t }) => el('span', { class: 'chip' }, `${name}: ${t.preset ?? 'keys'}`,
+        el('button', { title: 'Remove', onclick: () => run('remove_animation', { animation: name, id: o.id }) }, '✕'))))) : null,
+      row('Add', el('div', { class: 'color-row' }, presetSel,
+        el('button', {
+          class: 'tiny',
+          onclick: async () => {
+            const animation = nameInput.value.trim() || 'idle';
+            if (await run('animate_object', { id: o.id, preset: presetSel.value, animation })) {
+              state.anim.name = animation;
+              toggleAnimation(true);
+            }
+          },
+        }, 'add'))),
+      row('Into', nameInput),
+      o.type !== 'group' && o.parent ? el('p', { class: 'hint' }, 'Tip: to move a whole thing (like a chest lid) select its group in the object list.') : null,
+    ));
+}
+
+function updateAnimControls(scene) {
+  const names = Object.keys(scene.animations ?? {});
+  document.getElementById('anim-controls').hidden = !names.length;
+  const sel = document.getElementById('anim-select');
+  if (sel.dataset.names !== names.join(',')) {
+    sel.innerHTML = '';
+    for (const n of names) sel.append(new Option(n, n));
+    sel.dataset.names = names.join(',');
+  }
+  if (!names.includes(state.anim.name)) state.anim.name = names[0] ?? null;
+  if (!names.length && state.anim.playing) toggleAnimation(false);
+  sel.value = state.anim.name ?? '';
+}
+
+function toggleAnimation(play) {
+  state.anim.playing = play && !!state.anim.name;
+  state.anim.start = performance.now();
+  if (!state.anim.playing) view.resetPose();
+  document.getElementById('play-btn').textContent = state.anim.playing ? '⏸' : '▶';
 }
 
 function objectWidth(o) {
@@ -632,6 +701,123 @@ function openRenderModal() {
       el('label', { class: 'inline' }, transparent, ' Transparent'), el('button', { class: 'primary', onclick: go }, 'Render')),
     out));
   go();
+}
+
+// Icons, sprite sheets and Godot export in one window.
+function openGameModal() {
+  const body = el('div', {});
+  const tabs = { Icons: iconsTab, Sprites: spritesTab, Godot: godotTab };
+  const bar = el('div', { class: 'tabs' });
+  const content = el('div', {});
+  const show = (name) => {
+    for (const b of bar.children) b.classList.toggle('active', b.textContent === name);
+    content.innerHTML = '';
+    content.append(tabs[name]());
+    try { localStorage.setItem('forge.gameTab', name); } catch {}
+  };
+  for (const name of Object.keys(tabs)) bar.append(el('button', { onclick: () => show(name) }, name));
+  body.append(bar, content);
+  openModal('Game assets', body);
+  let last = 'Icons';
+  try { last = localStorage.getItem('forge.gameTab') || last; } catch {}
+  show(tabs[last] ? last : 'Icons');
+}
+
+const exportUrl = (file) => `/exports/${file.split(/[\\/]exports[\\/]/)[1].replace(/\\/g, '/')}?t=${Date.now()}`;
+const sel = (options, value) => el('select', {}, options.map(([v, label]) => el('option', { value: v, selected: String(v) === String(value) }, label ?? v)));
+const field = (label, input) => el('label', {}, label, input);
+const selectedObj = () => (state.selected ? state.scene.objects[state.selected] : null);
+
+function iconsTab() {
+  const size = sel([[64], [128], [256], [512]], 256);
+  const view = sel([['iso'], ['front'], ['iso_back'], ['left'], ['right'], ['top']], 'iso');
+  const useOutline = el('input', { type: 'checkbox', checked: true });
+  const outline = el('input', { type: 'color', value: '#1b1c20' });
+  const scope = sel([['all', 'every object in the scene'], ['selected', 'only the selected object']], selectedObj() ? 'selected' : 'all');
+  const out = el('div', { class: 'icon-grid' });
+  const go = async () => {
+    out.innerHTML = '<p class="muted">Rendering icons…</p>';
+    const args = { size: Number(size.value), view: view.value, outline: useOutline.checked ? outline.value : null };
+    if (scope.value === 'selected' && state.selected) args.ids = [state.selected];
+    const r = await run('make_icons', args);
+    out.innerHTML = '';
+    if (r) for (const f of r.files) out.append(el('a', { href: exportUrl(f), target: '_blank', title: f }, el('img', { src: exportUrl(f) })));
+  };
+  return el('div', {},
+    el('p', { class: 'hint' }, 'One square picture per object, all with the same angle and light, on a see-through background. Saved in workspace/exports/icons.'),
+    el('div', { class: 'form-grid' }, field('Size (pixels)', size), field('Angle', view), field('Which objects', scope),
+      el('label', { class: 'check' }, useOutline, ' Outline ', outline)),
+    el('button', { class: 'primary', onclick: go }, 'Make icons'), out);
+}
+
+function spritesTab() {
+  const o = selectedObj();
+  const anims = Object.keys(state.scene.animations ?? {});
+  const dirs = sel([[1, '1 (front only)'], [4, '4 directions'], [8, '8 directions']], 8);
+  const size = sel([[32], [48], [64], [96], [128], [256]], 64);
+  const elev = el('input', { type: 'number', min: 0, max: 90, step: 5, value: 30 });
+  const pixel = el('input', { type: 'checkbox', checked: true });
+  const colors = el('input', { type: 'number', min: 2, max: 256, value: 24 });
+  const useOutline = el('input', { type: 'checkbox', checked: true });
+  const outline = el('input', { type: 'color', value: '#16171b' });
+  const anim = sel([['', 'none (still)'], ...anims.map((a) => [a])], anims[0] ?? '');
+  const frames = el('input', { type: 'number', min: 1, max: 64, value: 8 });
+  const name = el('input', { type: 'text', value: o?.name ?? state.scene.name });
+  const out = el('div', {});
+  const go = async () => {
+    out.innerHTML = '<p class="muted">Rendering sprite sheet…</p>';
+    const args = {
+      filename: name.value || 'sprites', directions: Number(dirs.value), frameSize: Number(size.value), elevation: Number(elev.value),
+      pixelArt: pixel.checked, colors: Number(colors.value), outline: useOutline.checked ? outline.value : null,
+    };
+    if (o) args.target = o.id;
+    if (anim.value) Object.assign(args, { animation: anim.value, frames: Number(frames.value) });
+    const r = await run('render_sprites', args);
+    out.innerHTML = '';
+    if (!r) return;
+    const src = `data:image/png;base64,${r.image}`;
+    out.append(
+      el('img', { src, class: 'pixelated', style: `width:${Math.min(760, r.columns * r.frameSize * 2)}px` }),
+      el('p', { class: 'hint' }, `${r.rows} rows (${r.directions.join(', ')}) × ${r.columns} frames of ${r.frameSize}px${r.fps ? `, ${r.fps} fps` : ''}. Saved as ${r.path} with a .json layout file.`),
+      el('a', { href: src, download: `${args.filename}.png` }, el('button', {}, 'Download PNG')));
+  };
+  return el('div', {},
+    el('p', { class: 'hint' }, `Turns ${o ? `"${o.name}"` : 'the whole scene'} into a 2D sprite sheet: rows are directions, columns are animation frames. Select an object first to render only that.`),
+    el('div', { class: 'form-grid' },
+      field('Directions', dirs), field('Frame size (pixels)', size), field('Camera height (0 = side, 30 = iso, 60+ = top-down)', elev),
+      field('Animation', anim), field('Frames per direction', frames), field('File name', name),
+      el('label', { class: 'check' }, pixel, ' Pixel art'), field('Colours (pixel art)', colors),
+      el('label', { class: 'check' }, useOutline, ' Outline ', outline)),
+    el('button', { class: 'primary', onclick: go }, 'Make sprite sheet'), out);
+}
+
+function godotTab() {
+  let saved = '';
+  try { saved = localStorage.getItem('forge.godotProject') ?? ''; } catch {}
+  const project = el('input', { type: 'text', value: saved, placeholder: 'D:\\Programmeren\\games\\my-game' });
+  const folder = el('input', { type: 'text', value: 'assets/forge' });
+  const collision = sel([['box', 'box (fast)'], ['convex', 'convex (wraps the shape)'], ['mesh', 'exact (static level parts)'], ['none']], 'box');
+  const out = el('div', {});
+  const o = selectedObj();
+  const exportWith = async (command, extra) => {
+    try { localStorage.setItem('forge.godotProject', project.value); } catch {}
+    out.innerHTML = '<p class="muted">Exporting…</p>';
+    const r = await run(command, { project: project.value, folder: folder.value, collision: collision.value, ...extra });
+    out.innerHTML = '';
+    if (r) {
+      const files = r.files ?? [r.path];
+      out.append(el('p', {}, `Exported ${files.length} file${files.length > 1 ? 's' : ''}. Switch to Godot: it imports them automatically.`),
+        el('ul', { class: 'hint' }, files.map((f) => el('li', {}, f))));
+    }
+  };
+  return el('div', {},
+    el('p', { class: 'hint' }, 'Sends .glb files straight into a Godot 4 project, with a collision shape (so players cannot walk through) and animations (Godot makes an AnimationPlayer). Each object lands at the origin, ready to place.'),
+    el('div', { class: 'form-grid' }, field('Godot project folder (contains project.godot)', project), field('Folder inside the project', folder), field('Collision', collision)),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'primary', disabled: !o, title: o ? '' : 'Select an object first', onclick: () => exportWith('export_godot', { target: o.id }) }, o ? `Export "${o.name}"` : 'Export selected'),
+      el('button', { onclick: () => exportWith('export_each', o?.type === 'group' && state.scene.order.some((id) => state.scene.objects[id].parent === o.id) && confirm(`Export each piece inside "${o.name}" separately?\n\nOK = pieces of this group, Cancel = every object in the scene`) ? { group: o.id } : {}) }, 'Export each object separately'),
+      el('button', { onclick: () => exportWith('export_godot', { filename: state.scene.name }) }, 'Export whole scene as one')),
+    out);
 }
 
 async function exportGlb() {

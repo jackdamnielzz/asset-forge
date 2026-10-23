@@ -25,6 +25,10 @@ How to make beautiful assets:
    (subtract/union/intersect: holes, windows, grooves), mirror_object (symmetry), repeat_object (line/circle/grid).
 7. ALWAYS check your work with render_preview (try iso and front views) and fix gaps, floating parts and proportions before declaring it done.
 8. Use run_batch to build many parts in one step ($N.id references earlier results).
+   Games: animate_object (spin, bob, pulse, swing, hinge, shake, hop) or set_keyframes add movement;
+   render_sprites turns an object into a pixel-art sprite sheet (directions x frames); make_icons renders
+   matching inventory icons; export_godot / export_each write .glb files with collision and animations into a
+   Godot project; make_level_kit builds snapping floor/wall/door/window/pillar/stairs pieces.
 9. Deliver with export_glb (3D model) and/or export_png (picture). Files land in the workspace/exports folder.`;
 
 const server = new Server({ name: 'asset-forge', version: '0.1.0' }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });

@@ -97,7 +97,7 @@
 - Cut and combine shapes (booleans)
 - Generator library: barrel, chest, rock, tree, crystal, potion bottle, sword, lamp post, fence, coin
 
-### Phase 4 — Made for our games
+### Phase 4 — Made for our games ✅ done (2026-10-23)
 - Icon maker (consistent inventory icons, in batches)
 - 3D → pixel-art sprites from 4/8 directions, sprite sheets
 - Godot export (straight into a project, with collision shapes)

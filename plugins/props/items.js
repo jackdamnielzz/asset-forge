@@ -86,17 +86,18 @@ export function register(registry, z, engine) {
       symbol: z.string().max(3).optional().describe('Up to 3 letters or digits, default "$"'),
       material: z.enum(['gold', 'copper', 'steel', 'chrome']).optional(),
       count: z.number().int().min(1).max(40).optional(),
+      upright: z.boolean().optional().describe('Stand the coin on its edge, facing forward (for spinning pickups)'),
     }),
     async build(a, k, root) {
       const r = a.radius ?? 0.06, t = r * 0.2;
       const mat = { preset: a.material ?? 'gold' };
-      const coin = await k.group(root, 'coin', [0, 0, 0]);
+      const coin = await k.group(root, 'coin', a.upright ? [0, r, -t * 0.36] : [0, 0, 0], a.upright ? [90, 0, 0] : undefined);
       await k.part(coin, 'lathe', 'coin_body', [0, 0, 0], {
         points: [[0, 0], [r * 0.97, 0], [r, t * 0.1], [r, t * 0.9], [r * 0.97, t], [r * 0.85, t], [r * 0.83, t * 0.72], [0, t * 0.72]], segments: 64,
       }, mat);
       const size = r * 0.95;
       await k.part(coin, 'text', 'symbol', [0, t * 0.72, size * 0.36], { text: a.symbol ?? '$', size, depth: t * 0.3, bevel: t * 0.05, font: 'helvetiker_bold' }, mat, { rotation: [-90, 0, 0] });
-      if ((a.count ?? 1) > 1) await k.repeat(coin, { count: a.count - 1, mode: 'line', offset: [0, t * 1.02, 0] });
+      if ((a.count ?? 1) > 1 && !a.upright) await k.repeat(coin, { count: a.count - 1, mode: 'line', offset: [0, t * 1.02, 0] });
     },
   });
 }

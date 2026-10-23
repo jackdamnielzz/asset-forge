@@ -7,7 +7,10 @@ import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { Brush, Evaluator, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg';
 import { createComposer, tuneComposer, disposeComposer, compensateBackground } from './effects.js';
 import { generatePattern } from './patterns.js';
+import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { latheGeometry, extrudeGeometry, textGeometry, rockGeometry, cutoutGeometry, traceImage } from './shapes.js';
+import { hardenAlpha, quantize, pixelOutline, softOutline } from './pixelart.js';
+import { sampleObject } from '/shared/animations.js';
 
 const CSG_OPS = { subtract: SUBTRACTION, union: ADDITION, intersect: INTERSECTION };
 
@@ -504,7 +507,7 @@ export class SceneView {
     this.composer.composer.render();
   }
 
-  frameCamera(camera, view, targetId) {
+  frameCamera(camera, view, targetId, padding = 0) {
     const target = targetId ? this.nodes.get(targetId)?.obj : this.content;
     const box = contentBox(target ?? this.content);
     if (box.isEmpty()) box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
@@ -522,7 +525,7 @@ export class SceneView {
       c.sub(center).applyMatrix4(toCam);
       dist = Math.max(dist, c.z + Math.abs(c.x) / tanH, c.z + Math.abs(c.y) / tanV);
     }
-    dist = Math.max(dist * 1.08, 0.05);
+    dist = Math.max(dist * (1.08 + padding * 2), 0.05);
     camera.position.copy(center).addScaledVector(dir, dist);
     camera.near = dist / 100;
     camera.far = dist * 10;
@@ -532,16 +535,18 @@ export class SceneView {
   }
 
   // Render a picture. Supersamples for clean edges, returns base64 PNG.
-  async renderImage({ view = 'iso', width = 768, height = 768, target, background, ground }) {
+  async renderImage({ view = 'iso', width = 768, height = 768, target, background, ground, isolate = false, padding = 0, outline = null }) {
     await this.whenReady();
+    this.resetPose();
     const env = this.data.environment;
+    const restoreIsolation = isolate && target ? this.isolate(target) : null;
     const ss = width * height <= 1024 * 1024 ? 2 : 1;
     const cam = new THREE.PerspectiveCamera(35, width / height, 0.01, 500);
     if (view === 'camera') {
       cam.position.fromArray(this.data.camera.position);
       cam.lookAt(new THREE.Vector3().fromArray(this.data.camera.target));
     } else {
-      this.frameCamera(cam, view, target);
+      this.frameCamera(cam, view, target, padding);
     }
 
     const prevSize = this.renderer.getSize(new THREE.Vector2());
@@ -572,33 +577,248 @@ export class SceneView {
     const ctx = out.getContext('2d');
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(this.canvas, 0, 0, width, height);
+    if (outline && transparent) {
+      const img = ctx.getImageData(0, 0, width, height);
+      softOutline(img, outline.color, outline.width);
+      ctx.putImageData(img, 0, 0);
+    }
 
     this.helpers.visible = helpersVisible;
     this.setBackground(env.background ?? LIGHTING_PRESETS[env.lighting]?.background);
     this.ground.visible = env.ground !== false;
     this.renderer.setPixelRatio(prevRatio);
     this.renderer.setSize(prevSize.x, prevSize.y, false);
+    restoreIsolation?.();
 
     return { png: out.toDataURL('image/png').split(',')[1], width, height };
   }
 
-  async exportGlb({ target }) {
+  // Hide everything except one object (with its parents and children). Returns an undo function.
+  isolate(targetId) {
+    const target = this.nodes.get(targetId)?.obj;
+    if (!target) return () => {};
+    const keep = new Set();
+    target.traverse((o) => keep.add(o));
+    for (let p = target.parent; p; p = p.parent) keep.add(p);
+    const hidden = [];
+    for (const { obj } of this.nodes.values()) {
+      if (!keep.has(obj) && obj.visible) { obj.visible = false; hidden.push(obj); }
+    }
+    this.fitShadows();
+    return () => { for (const o of hidden) o.visible = true; this.fitShadows(); };
+  }
+
+  // ---- animation --------------------------------------------------------------
+
+  // Put every animated object in its pose at time t (0..1) of an animation.
+  pose(name, t) {
+    const anim = this.data?.animations?.[name];
+    this.resetPose();
+    if (!anim) return;
+    this.posed = new Set();
+    for (const id of new Set(anim.tracks.map((tr) => tr.target))) {
+      const node = this.nodes.get(id);
+      const o = this.data.objects[id];
+      const off = node && o && sampleObject(anim, id, t);
+      if (!off || node.locked) continue;
+      node.obj.position.set(...o.position.map((v, i) => v + off.position[i]));
+      node.obj.rotation.set(...o.rotation.map((v, i) => (v + off.rotation[i]) * DEG));
+      node.obj.scale.set(...o.scale.map((v, i) => v * off.scale[i]));
+      this.posed.add(id);
+    }
+  }
+
+  resetPose() {
+    if (!this.posed) return;
+    for (const id of this.posed) {
+      const node = this.nodes.get(id), o = this.data.objects[id];
+      if (!node || !o) continue;
+      node.obj.position.fromArray(o.position);
+      node.obj.rotation.set(o.rotation[0] * DEG, o.rotation[1] * DEG, o.rotation[2] * DEG);
+      node.obj.scale.fromArray(o.scale);
+    }
+    this.posed = null;
+  }
+
+  // ---- sprites ------------------------------------------------------------------
+
+  async renderSprites({ target, directions = 8, frameSize = 64, animation, frames = 1, elevation = 30, pixelArt = true, colors = 24, palette, outline = '#16171b', groundShadow = false }) {
     await this.whenReady();
+    this.resetPose();
+    const env = this.data.environment;
+    const anim = animation ? this.data.animations?.[animation] : null;
+    const frameCount = anim ? frames : 1;
+    const restoreIsolation = target ? this.isolate(target) : null;
+    const root = (target && this.nodes.get(target)?.obj) || this.content;
+
+    // one fixed frame for all directions and frames, so the sprite never jumps or resizes
+    const box = new THREE.Box3();
+    for (let f = 0; f < frameCount; f++) {
+      if (anim) this.pose(animation, f / frameCount);
+      box.union(contentBox(root));
+    }
+    this.resetPose();
+    if (box.isEmpty()) box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = box.getBoundingSphere(new THREE.Sphere()).radius * 1.02;
+    const cam = new THREE.OrthographicCamera(-radius, radius, radius, -radius, radius * 0.1, radius * 30);
+
+    const prevSize = this.renderer.getSize(new THREE.Vector2());
+    const prevRatio = this.renderer.getPixelRatio();
+    const helpersVisible = this.helpers.visible;
+    this.helpers.visible = false;
+    this.setBackground('transparent');
+    this.prepareBackground(false);
+    this.ground.visible = groundShadow;
+    const res = pixelArt ? frameSize : frameSize * 2;
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(res, res, false);
+
+    const sheet = document.createElement('canvas');
+    sheet.width = frameCount * frameSize;
+    sheet.height = directions * frameSize;
+    const ctx = sheet.getContext('2d');
+    ctx.imageSmoothingEnabled = !pixelArt;
+    ctx.imageSmoothingQuality = 'high';
+    const el = elevation * DEG;
+    for (let d = 0; d < directions; d++) {
+      const az = (d / directions) * Math.PI * 2;
+      cam.position.set(center.x + Math.sin(az) * Math.cos(el) * radius * 10, center.y + Math.sin(el) * radius * 10, center.z + Math.cos(az) * Math.cos(el) * radius * 10);
+      cam.lookAt(center);
+      for (let f = 0; f < frameCount; f++) {
+        if (anim) this.pose(animation, f / frameCount);
+        this.renderer.render(this.scene, cam);
+        ctx.drawImage(this.canvas, f * frameSize, d * frameSize, frameSize, frameSize);
+      }
+    }
+    this.resetPose();
+
+    let usedPalette = null;
+    if (pixelArt) {
+      const img = ctx.getImageData(0, 0, sheet.width, sheet.height);
+      hardenAlpha(img);
+      usedPalette = quantize(img, colors, palette);
+      if (outline) pixelOutline(img, outline);
+      ctx.putImageData(img, 0, 0);
+    }
+
+    this.helpers.visible = helpersVisible;
+    this.setBackground(env.background ?? LIGHTING_PRESETS[env.lighting]?.background);
+    this.ground.visible = env.ground !== false;
+    this.renderer.setPixelRatio(prevRatio);
+    this.renderer.setSize(prevSize.x, prevSize.y, false);
+    restoreIsolation?.();
+
+    const names = { 1: ['down'], 4: ['down', 'left', 'up', 'right'], 8: ['down', 'down_left', 'left', 'up_left', 'up', 'up_right', 'right', 'down_right'] }[directions];
+    return {
+      png: sheet.toDataURL('image/png').split(',')[1],
+      meta: {
+        frameSize, rows: directions, columns: frameCount, directions: names, animation: animation ?? null,
+        fps: anim ? Math.round((frameCount / anim.duration) * 100) / 100 : null, palette: usedPalette,
+      },
+    };
+  }
+
+  // ---- export -----------------------------------------------------------------
+
+  async exportGlb({ target, collision = 'none', animations = true, atOrigin = false, name = 'asset' }) {
+    await this.whenReady();
+    this.resetPose();
     const root = target ? this.nodes.get(target)?.obj : this.content;
     const outlines = [];
     root.traverse((o) => { if (o.userData.isOutline && o.visible) { o.visible = false; outlines.push(o); } });
+    const savedPos = root.position.clone();
+    if (atOrigin && target) root.position.set(0, 0, 0);
+    root.updateMatrixWorld(true);
+    const col = collision !== 'none' ? collisionMesh(root, collision, name) : null;
+    if (col) root.add(col);
     try {
+      const clips = animations ? this.animationClips(root) : [];
       const exporter = new GLTFExporter();
-      const result = await exporter.parseAsync(root, { binary: true, onlyVisible: true });
+      const result = await exporter.parseAsync(root, { binary: true, onlyVisible: true, animations: clips });
       return { glb: bufferToBase64(result) };
     } finally {
+      if (col) { col.removeFromParent(); col.geometry.dispose(); }
+      root.position.copy(savedPos);
+      root.updateMatrixWorld(true);
       for (const o of outlines) o.visible = true;
     }
+  }
+
+  // Bake the scene's animations (that touch this export) into glTF animation clips at 30 fps.
+  animationClips(root) {
+    const inside = new Set();
+    root.traverse((o) => inside.add(o));
+    const clips = [];
+    for (const [name, anim] of Object.entries(this.data.animations ?? {})) {
+      const fps = 30, n = Math.max(2, Math.round(anim.duration * fps));
+      const times = Array.from({ length: n + 1 }, (_, i) => (i / n) * anim.duration);
+      const tracks = [];
+      for (const id of new Set(anim.tracks.map((tr) => tr.target))) {
+        const obj = this.nodes.get(id)?.obj;
+        if (!obj || !inside.has(obj)) continue;
+        const base = { p: obj.position.clone(), r: obj.rotation.clone(), s: obj.scale.clone() };
+        const pos = [], quat = [], scl = [];
+        const q = new THREE.Quaternion(), e = new THREE.Euler();
+        for (let i = 0; i <= n; i++) {
+          const off = sampleObject(anim, id, (i / n) % 1);
+          const o = off ?? { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] };
+          pos.push(base.p.x + o.position[0], base.p.y + o.position[1], base.p.z + o.position[2]);
+          e.set(base.r.x + o.rotation[0] * DEG, base.r.y + o.rotation[1] * DEG, base.r.z + o.rotation[2] * DEG);
+          q.setFromEuler(e);
+          quat.push(q.x, q.y, q.z, q.w);
+          scl.push(base.s.x * o.scale[0], base.s.y * o.scale[1], base.s.z * o.scale[2]);
+        }
+        tracks.push(
+          new THREE.VectorKeyframeTrack(`${obj.uuid}.position`, times, pos),
+          new THREE.QuaternionKeyframeTrack(`${obj.uuid}.quaternion`, times, quat),
+          new THREE.VectorKeyframeTrack(`${obj.uuid}.scale`, times, scl),
+        );
+      }
+      if (tracks.length) clips.push(new THREE.AnimationClip(name, anim.duration, tracks));
+    }
+    return clips;
   }
 
   objectById(id) {
     return this.nodes.get(id)?.obj ?? null;
   }
+}
+
+// Collision shape for Godot. Godot's importer turns nodes whose name ends in "-colonly"
+// (exact triangles) or "-convcolonly" (convex hull) into collision shapes without a visible mesh.
+function collisionMesh(root, kind, name) {
+  const inv = root.matrixWorld.clone().invert();
+  const points = [];
+  const v = new THREE.Vector3();
+  const tris = [];
+  root.traverseVisible((o) => {
+    if (!o.isMesh || o.userData.isOutline || !o.geometry.attributes.position) return;
+    const m = inv.clone().multiply(o.matrixWorld);
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry;
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m);
+      points.push(v.clone());
+      if (kind === 'mesh') tris.push(v.x, v.y, v.z);
+    }
+  });
+  if (!points.length) return null;
+  let geo;
+  if (kind === 'box') {
+    const box = new THREE.Box3().setFromPoints(points);
+    const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    geo = new THREE.BoxGeometry(Math.max(size.x, 0.001), Math.max(size.y, 0.001), Math.max(size.z, 0.001)).translate(c.x, c.y, c.z);
+  } else if (kind === 'convex') {
+    // thin out very dense meshes; the hull only needs the outer points
+    const step = Math.max(1, Math.floor(points.length / 4000));
+    geo = new ConvexGeometry(points.filter((_, i) => i % step === 0));
+  } else {
+    geo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(tris, 3));
+  }
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xff00ff }));
+  mesh.name = `${name}${kind === 'mesh' ? '-colonly' : '-convcolonly'}`;
+  return mesh;
 }
 
 // A material needs generated textures when it has a pattern or shows wear.

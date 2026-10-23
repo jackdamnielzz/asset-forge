@@ -22,6 +22,7 @@ export function emptyScene(name = 'untitled') {
       style: 'realistic', styleOptions: { ...DEFAULT_STYLE_OPTIONS }, effects: { ...DEFAULT_EFFECTS },
     },
     camera: { position: [3.2, 2.4, 4.2], target: [0, 0.5, 0] },
+    animations: {},
   };
 }
 

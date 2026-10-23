@@ -24,6 +24,12 @@ An AI-controllable 3D asset tool (see PLAN.md). Priorities: 1) beautiful output,
 - Undo: the outermost command or batch takes one snapshot (`Engine.recorded`, AsyncLocalStorage);
   nested commands inside it are part of the same step. Concurrent callers are queued.
 - Generators are plugins in `plugins/props/` built with `defineGenerator()` from `kit.js`.
+- Animations (`scene.animations`) are presets/keyframes giving offsets from an object's pose, defined in
+  `src/shared/animations.js` and sampled by the viewer (`SceneView.pose`). Sprite sheets, icons and Godot export
+  are bridge requests handled in viewer.js (`renderSprites`, `renderImage` with `isolate`, `exportGlb` with
+  `collision`/`animations`); 2D clean-up (palette, outlines) lives in `web/js/pixelart.js`.
+- For development, run a second engine (`FORGE_PORT=7791`, `FORGE_WORKSPACE` in a temp folder) so the user's
+  window on 7777 is not disturbed.
 
 ## Making assets with the MCP tools
 The `asset-forge` MCP server is configured in `.mcp.json`. Build with several parts in a group,

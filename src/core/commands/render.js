@@ -47,11 +47,17 @@ export function register(registry, { z, engine }) {
     name: 'export_glb',
     title: 'Export GLB',
     category: 'render',
-    description: 'Export the scene (or one object/group) as a .glb 3D model file with textures embedded. Opens in Godot, Unity, Unreal and Blender.',
-    input: z.object({ filename: z.string(), target: z.string().optional().describe('Object or group id; default exports everything visible') }),
-    async handler({ filename, target }) {
+    description:
+      'Export the scene (or one object/group) as a .glb 3D model file with textures and animations embedded. Opens in Godot, Unity, Unreal and Blender. ' +
+      'A single object is exported at the origin. For Godot projects, export_godot also adds collision.',
+    input: z.object({
+      filename: z.string(),
+      target: z.string().optional().describe('Object or group id; default exports everything visible'),
+      collision: z.enum(['box', 'convex', 'mesh', 'none']).optional().describe('Add a Godot collision shape (default none)'),
+    }),
+    async handler({ filename, target, collision = 'none' }) {
       if (target) engine.getObject(target);
-      const out = await engine.exportGlb({ target });
+      const out = await engine.exportGlb({ target, collision, animations: true, atOrigin: !!target, name: safeName(filename) });
       const file = await writeExport(engine, `${safeName(filename)}.glb`, out.glb);
       return { path: file, bytes: Buffer.from(out.glb, 'base64').length };
     },

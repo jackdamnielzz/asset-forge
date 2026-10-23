@@ -1,0 +1,14 @@
+{
+  "commands": [
+    { "command": "clear_scene" },
+    { "command": "set_environment", "args": { "lighting": "studio" } },
+    { "command": "make_level_kit", "args": { "style": "dungeon", "position": [-4, 0, -2.5] } },
+    { "command": "make_coin", "args": { "upright": true, "radius": 0.25, "symbol": "G", "position": [-1.2, 0.1, 0.8] } },
+    { "command": "animate_object", "args": { "id": "$3.id", "preset": "spin", "duration": 2 } },
+    { "command": "animate_object", "args": { "id": "$3.id", "preset": "bob", "params": { "height": 0.08 } } },
+    { "command": "make_chest", "args": { "position": [0.6, 0, 0.6], "seed": 3 } },
+    { "command": "make_crystal", "args": { "position": [2.2, 0, 0.8], "seed": 6 } },
+    { "command": "make_lamp_post", "args": { "position": [3.4, 0, 0.2] } },
+    { "command": "animate_object", "args": { "id": "$8.id", "preset": "swing", "params": { "angle": 3 }, "speed": 1 } }
+  ]
+}
